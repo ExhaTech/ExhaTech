@@ -123,7 +123,13 @@ p  { margin: 0 0 1em; color: var(--ink-soft); }
   padding-block: 14px;
 }
 .brand { display: flex; align-items: center; gap: 14px; }
-.brand-logo { width: 64px; height: 64px; object-fit: contain; }
+.brand-logo {
+  height: 40px;
+  width: auto;
+  max-width: none;
+  flex-shrink: 0;
+  object-fit: contain;
+}
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
 .brand-name { font-weight: 800; font-size: 1.5rem; color: var(--teal-dark); }
 .brand-sub  { font-weight: 400; font-size: 0.85rem; color: var(--muted); letter-spacing: 0.08em; }

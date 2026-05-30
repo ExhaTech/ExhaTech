@@ -1,0 +1,9 @@
+{
+    "webPreview.url": "http://localhost:3000",
+    "webPreview.mediaScreenOverride": true,
+    "webPreview.mediaScreen": {
+        "Mobile": "380x796",
+        "Tablet": 768,
+        "Laptop": 1024
+    }
+}
