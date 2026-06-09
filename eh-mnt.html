@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Yurguen: módulo oculto — no indexar en buscadores -->
+  <meta name="robots" content="noindex, nofollow" />
+  <!-- Yurguen: URL y assets discretos (no usar nombre "admin") -->
+  <title>Exha — Acceso</title>
+  <link rel="stylesheet" href="eh-mnt.css" />
+</head>
+<body>
+  <!-- Yurguen: acceso con correo y contraseña; datos en data/cobros.json vía API -->
+  <section class="admin-login" id="adminLogin">
+    <div class="admin-login-box">
+      <h1>Exha — Cobros</h1>
+      <p>Módulo interno. Ingresá con tu usuario.</p>
+      <form id="loginForm">
+        <div class="field">
+          <label for="emailInput">Correo</label>
+          <input type="email" id="emailInput" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="passwordInput">Contraseña</label>
+          <input type="password" id="passwordInput" autocomplete="current-password" required />
+        </div>
+        <p class="admin-msg error" id="loginError" hidden></p>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px">Entrar</button>
+      </form>
+      <p style="margin-top:12px;font-size:0.8rem;color:#7a8889">Clave en <code>data/auth.local.json</code> (local). Cobros cifrados en Git: <code>data/cobros.json</code>.</p>
+      <a href="index.html" style="display:inline-block;margin-top:8px;font-size:0.85rem">← Volver al sitio</a>
+    </div>
+  </section>
+
+  <div class="admin-shell" id="adminShell">
+    <header class="admin-top">
+      <h1>Cobros y mantenimientos — <span id="periodLabel"></span></h1>
+      <div class="admin-top-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="btnExport">Exportar JSON</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnImport">Importar JSON</button>
+        <input type="file" id="importFile" accept=".json" hidden />
+        <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
+      </div>
+    </header>
+
+    <nav class="admin-nav">
+      <button type="button" class="active" data-panel="resumen">Resumen</button>
+      <button type="button" data-panel="pagos">Pagos del mes</button>
+      <button type="button" data-panel="bitacora">Bitácora</button>
+      <button type="button" data-panel="clientes">Clientes</button>
+    </nav>
+
+    <main class="admin-main">
+      <p class="admin-msg error" id="apiError" hidden></p>
+      <section class="admin-panel active" id="panel-resumen">
+        <div class="admin-stats">
+          <div class="stat-card"><strong id="statExpected">₡0</strong><span>Esperado este mes</span></div>
+          <div class="stat-card"><strong id="statCollected">₡0</strong><span>Cobrado</span></div>
+          <div class="stat-card"><strong id="statPending">₡0</strong><span>Pendiente</span></div>
+          <div class="stat-card"><strong id="statClients">0</strong><span>Clientes activos</span></div>
+        </div>
+        <div class="admin-card">
+          <h2>Tipo de cambio global</h2>
+          <p>Para servicios en <strong>dólares</strong>: si no ponés tipo por servicio, se usa este valor (₡ por $1).</p>
+          <div class="field-row" style="max-width:320px">
+            <div class="field">
+              <label for="defaultExchangeRate">₡ por $1</label>
+              <input type="number" id="defaultExchangeRate" min="1" step="0.01" />
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <button type="button" class="btn btn-primary" id="btnSaveRate">Guardar</button>
+            </div>
+          </div>
+        </div>
+        <div class="admin-card">
+          <h2>Bitácora y limpieza</h2>
+          <p>Cada cobro <strong>marcado como pagado</strong> queda en la bitácora con fecha, monto y descripción.</p>
+          <div class="field-row" style="max-width:480px;align-items:flex-end">
+            <div class="field">
+              <label for="retentionMonths">Conservar historial</label>
+              <select id="retentionMonths">
+                <option value="12">12 meses (1 año)</option>
+                <option value="18">18 meses</option>
+                <option value="24">24 meses (2 años) — recomendado</option>
+                <option value="36">36 meses (3 años)</option>
+                <option value="48">48 meses (4 años)</option>
+                <option value="0">Sin límite (no borrar)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label><input type="checkbox" id="autoPurge" checked /> Limpieza automática al entrar</label>
+            </div>
+          </div>
+          <p id="retentionHint" style="font-size:0.88rem;color:#7a8889;margin:8px 0 12px"></p>
+          <button type="button" class="btn btn-outline" id="btnSaveRetention">Guardar política</button>
+          <button type="button" class="btn btn-danger btn-sm" id="btnPurgeNow" style="margin-left:8px">Limpiar ahora</button>
+        </div>
+        <div class="admin-card">
+          <h2>Uso rápido</h2>
+          <p><strong>Guardar:</strong> cada cambio (cliente, servicio, marcar pagado…) se escribe solo en <code>data/cobros.json</code> ya cifrado. Después <code>git push</code> para compartir con tu socio.<br>
+          Clave solo en <code>data/auth.local.json</code> (editar a mano si algún día la cambian).</p>
+          <button type="button" class="btn btn-primary" id="btnGenMonth">Generar / actualizar cobros del mes</button>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-pagos">
+        <div class="admin-card">
+          <h2>Pagos del mes actual</h2>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Servicio</th>
+                  <th>Descripción</th>
+                  <th>Periodicidad</th>
+                  <th>Día</th>
+                  <th>Monto (CRC eq.)</th>
+                  <th>Estado</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody id="paymentsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-bitacora">
+        <div class="admin-card">
+          <h2>Bitácora de pagos</h2>
+          <p style="margin-top:0;font-size:0.9rem;color:#7a8889">Solo cobros confirmados como pagados. <span id="bitacoraCount"></span></p>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Fecha pago</th>
+                  <th>Período</th>
+                  <th>Cliente</th>
+                  <th>Servicio</th>
+                  <th>Descripción</th>
+                  <th>Monto (CRC)</th>
+                </tr>
+              </thead>
+              <tbody id="bitacoraBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-clientes">
+        <div class="admin-clients-grid" style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:20px;align-items:start">
+          <div class="admin-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <h2 style="margin:0">Clientes</h2>
+              <button type="button" class="btn btn-primary btn-sm" id="btnNewClient">+ Nuevo</button>
+            </div>
+            <div class="client-list" id="clientList"></div>
+          </div>
+          <div class="admin-card" id="clientDetail">
+            <p class="empty-state">Seleccioná un cliente de la lista.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" id="modalCancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="eh-mnt.js"></script>
+</body>
+</html>

@@ -43,6 +43,23 @@
     revealTargets.forEach(function (el) { el.classList.add('visible'); });
   }
 
+  // Yurguen: acceso oculto al módulo de cobros — 5 clics rápidos en el badge del footer
+  var badge = document.querySelector('.footer-bottom .badge');
+  var badgeClicks = 0;
+  var badgeTimer = null;
+  if (badge) {
+    badge.style.cursor = 'default';
+    badge.addEventListener('click', function () {
+      badgeClicks += 1;
+      clearTimeout(badgeTimer);
+      badgeTimer = setTimeout(function () { badgeClicks = 0; }, 2500);
+      if (badgeClicks >= 5) {
+        badgeClicks = 0;
+        window.location.href = 'eh-mnt.html';
+      }
+    });
+  }
+
   // ---- Contact form (frontend-only demo) ----
   var form = document.getElementById('contactForm');
   var status = document.getElementById('formStatus');

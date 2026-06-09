@@ -40,11 +40,26 @@ ExhaTech/
 
 ## 🚀 Cómo verlo
 
-Abre `index.html` directamente o levanta un servidor estático:
+**Sitio público:** GitHub Pages (solo HTML/CSS/JS).
+
+**Panel de cobros (vos y tu socio):** solo en cada PC con `npm start` (localhost, sin PHP).
+
+### Sincronizar los dos (mismo archivo de cobros)
+
+1. `data/cobros.json` → **sí va a Git**, va **cifrado** (nadie lee clientes/montos sin la clave).
+2. `data/auth.local.json` → **no va a Git** (solo en cada máquina, misma contraseña acordada entre ustedes).
+3. Flujo: uno guarda → `git add data/cobros.json` → `commit` → `push` → el otro `git pull` → `npm start` → entra con la misma clave.
+
+Primera vez en cada PC:
 
 ```bash
-python3 -m http.server 8080
-# http://localhost:8080
+copy data\auth.local.example.json data\auth.local.json
+# Editá auth.local.json con admin@exhatech.com y tu contraseña
+npm start
+```
+
+```bash
+# http://localhost:8080  —  panel: http://localhost:8080/eh-mnt.html (5 clics en badge del footer)
 ```
 
 ## 📞 Contacto (placeholders)
