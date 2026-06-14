@@ -7,15 +7,14 @@
   <meta name="robots" content="noindex, nofollow" />
   <!-- Yurguen: URL y assets discretos (no usar nombre "admin") -->
   <title>Exha — Acceso</title>
-  <link rel="stylesheet" href="eh-mnt.css" />
+  <link rel="stylesheet" href="eh-mnt.css?v=17" />
 </head>
 <body>
   <!-- Yurguen: acceso con correo y contraseña; datos en data/cobros.json vía API -->
   <section class="admin-login" id="adminLogin">
     <div class="admin-login-box">
       <h1>Exha — Cobros</h1>
-      <p>Módulo interno. Ingresá con tu usuario.</p>
-      <form id="loginForm">
+      <form id="loginForm" novalidate>
         <div class="field">
           <label for="emailInput">Correo</label>
           <input type="email" id="emailInput" autocomplete="username" required />
@@ -24,17 +23,16 @@
           <label for="passwordInput">Contraseña</label>
           <input type="password" id="passwordInput" autocomplete="current-password" required />
         </div>
-        <p class="admin-msg error" id="loginError" hidden></p>
-        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px">Entrar</button>
+        <button type="submit" class="btn btn-primary" id="loginBtn" style="width:100%;margin-top:8px">Entrar</button>
+        <p class="admin-msg error" id="loginError" role="alert"></p>
       </form>
-      <p style="margin-top:12px;font-size:0.8rem;color:#7a8889">Clave en <code>data/auth.local.json</code> (local). Cobros cifrados en Git: <code>data/cobros.json</code>.</p>
-      <a href="index.html" style="display:inline-block;margin-top:8px;font-size:0.85rem">← Volver al sitio</a>
+      <a href="index.html" style="display:inline-block;margin-top:12px;font-size:0.85rem">← Volver al sitio</a>
     </div>
   </section>
 
   <div class="admin-shell" id="adminShell">
     <header class="admin-top">
-      <h1>Cobros y mantenimientos — <span id="periodLabel"></span></h1>
+      <h1>Administración ExhaTech — <span id="periodLabel"></span></h1>
       <div class="admin-top-actions">
         <button type="button" class="btn btn-ghost btn-sm" id="btnExport">Exportar JSON</button>
         <button type="button" class="btn btn-ghost btn-sm" id="btnImport">Importar JSON</button>
@@ -54,46 +52,54 @@
       <p class="admin-msg error" id="apiError" hidden></p>
       <section class="admin-panel active" id="panel-resumen">
         <div class="admin-stats">
-          <div class="stat-card"><strong id="statExpected">₡0</strong><span>Esperado este mes</span></div>
-          <div class="stat-card"><strong id="statCollected">₡0</strong><span>Cobrado</span></div>
-          <div class="stat-card"><strong id="statPending">₡0</strong><span>Pendiente</span></div>
-          <div class="stat-card"><strong id="statClients">0</strong><span>Clientes activos</span></div>
-        </div>
-        <div class="admin-card">
-          <h2>Tipo de cambio global</h2>
-          <p>Para servicios en <strong>dólares</strong>: si no ponés tipo por servicio, se usa este valor (₡ por $1).</p>
-          <div class="field-row" style="max-width:320px">
-            <div class="field">
-              <label for="defaultExchangeRate">₡ por $1</label>
-              <input type="number" id="defaultExchangeRate" min="1" step="0.01" />
-            </div>
-            <div class="field" style="display:flex;align-items:flex-end">
-              <button type="button" class="btn btn-primary" id="btnSaveRate">Guardar</button>
-            </div>
+          <div class="admin-stats-row">
+            <div class="stat-card"><strong id="statCobradoDone">₡0</strong><span>Cobrado (ejecutado)</span></div>
+            <div class="stat-card"><strong id="statCobradoPending">₡0</strong><span>Cobrado pendiente</span></div>
+            <div class="stat-card"><strong id="statPagadoDone">₡0</strong><span>Pagado (ejecutado)</span></div>
+            <div class="stat-card"><strong id="statPagadoPending">₡0</strong><span>Pagado pendiente</span></div>
+          </div>
+          <div class="admin-stats-row admin-stats-row--secondary">
+            <div class="stat-card stat-card--highlight"><strong id="statNetDone">₡0</strong><span>Valor actual</span><small id="statNetDoneHint">Cobrado − pagado (ejecutado)</small></div>
+            <div class="stat-card stat-card--highlight"><strong id="statNetMonth">₡0</strong><span>Proyección del mes</span><small id="statNetMonthHint">Incluye pendientes</small></div>
+            <div class="stat-card"><strong id="statClients">0</strong><span>Clientes activos</span></div>
           </div>
         </div>
-        <div class="admin-card">
-          <h2>Bitácora y limpieza</h2>
-          <p>Cada cobro <strong>marcado como pagado</strong> queda en la bitácora con fecha, monto y descripción.</p>
-          <div class="field-row" style="max-width:480px;align-items:flex-end">
-            <div class="field">
-              <label for="retentionMonths">Conservar historial</label>
-              <select id="retentionMonths">
-                <option value="12">12 meses (1 año)</option>
-                <option value="18">18 meses</option>
-                <option value="24">24 meses (2 años) — recomendado</option>
-                <option value="36">36 meses (3 años)</option>
-                <option value="48">48 meses (4 años)</option>
-                <option value="0">Sin límite (no borrar)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label><input type="checkbox" id="autoPurge" checked /> Limpieza automática al entrar</label>
+        <div class="admin-settings-grid">
+          <div class="admin-card">
+            <h2>Tipo de cambio y cargos</h2>
+            <p>El <strong>total en tabla</strong> = base en colones + IVA. La <strong>tx internacional</strong> es opcional por servicio (solo USD).</p>
+            <div class="field-row">
+              <div class="field">
+                <label for="defaultExchangeRate">₡ por $1</label>
+                <input type="number" id="defaultExchangeRate" min="1" step="0.01" />
+              </div>
+              <div class="field">
+                <label for="ivaPercent">IVA (%)</label>
+                <input type="number" id="ivaPercent" min="0" max="100" step="any" />
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button type="button" class="btn btn-primary" id="btnSaveRate">Guardar</button>
+              </div>
             </div>
           </div>
-          <p id="retentionHint" style="font-size:0.88rem;color:#7a8889;margin:8px 0 12px"></p>
-          <button type="button" class="btn btn-outline" id="btnSaveRetention">Guardar política</button>
-          <button type="button" class="btn btn-danger btn-sm" id="btnPurgeNow" style="margin-left:8px">Limpiar ahora</button>
+          <div class="admin-card">
+            <h2>Bitácora y limpieza</h2>
+            <p>Cada cobro <strong>marcado como pagado</strong> queda en la bitácora con fecha, monto y descripción.</p>
+            <div class="field-row" style="align-items:flex-end">
+              <div class="field">
+                <label for="retentionMonths">Conservar historial</label>
+                <select id="retentionMonths">
+                  <option value="12">12 meses (1 año)</option>
+                  <option value="0">Sin límite</option>
+                </select>
+              </div>
+              <div class="field">
+                <label><input type="checkbox" id="autoPurge" checked /> Limpieza automática al entrar</label>
+              </div>
+            </div>
+            <p id="retentionHint" style="font-size:0.88rem;color:#7a8889;margin:8px 0 12px"></p>
+            <button type="button" class="btn btn-outline" id="btnSaveRetention">Guardar política</button>
+          </div>
         </div>
         <div class="admin-card">
           <h2>Uso rápido</h2>
@@ -105,7 +111,8 @@
 
       <section class="admin-panel" id="panel-pagos">
         <div class="admin-card">
-          <h2>Pagos del mes actual</h2>
+          <h2>Pagos por mes</h2>
+          <div class="payments-tabs" id="paymentsTabs"></div>
           <div class="admin-table-wrap">
             <table class="admin-table">
               <thead>
@@ -114,13 +121,14 @@
                   <th>Servicio</th>
                   <th>Descripción</th>
                   <th>Periodicidad</th>
-                  <th>Día</th>
-                  <th>Monto (CRC eq.)</th>
+                  <th>Fecha cobro</th>
+                  <th>Total (CRC)</th>
                   <th>Estado</th>
                   <th>Acción</th>
                 </tr>
               </thead>
               <tbody id="paymentsBody"></tbody>
+              <tfoot id="paymentsFoot"></tfoot>
             </table>
           </div>
         </div>
@@ -139,7 +147,7 @@
                   <th>Cliente</th>
                   <th>Servicio</th>
                   <th>Descripción</th>
-                  <th>Monto (CRC)</th>
+                  <th>Total (CRC)</th>
                 </tr>
               </thead>
               <tbody id="bitacoraBody"></tbody>
@@ -170,12 +178,15 @@
       <h3 id="modalTitle"></h3>
       <div id="modalBody"></div>
       <div class="modal-actions">
-        <button type="button" class="btn btn-outline" id="modalCancel">Cancelar</button>
-        <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
+        <button type="button" class="btn btn-danger" id="modalDelete" hidden>Quitar servicio</button>
+        <div class="modal-actions-end">
+          <button type="button" class="btn btn-outline" id="modalCancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <script src="eh-mnt.js"></script>
+  <script src="eh-mnt.js?v=22"></script>
 </body>
 </html>

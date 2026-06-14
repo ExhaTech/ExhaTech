@@ -26,7 +26,8 @@ function defaultData() {
   return {
     settings: {
       defaultExchangeRate: 520,
-      retentionMonths: 24,
+      ivaPercent: 13,
+      retentionMonths: 12,
       autoPurge: true,
     },
     clients: [],
@@ -85,7 +86,8 @@ function publicSettings(data) {
   const s = data.settings || {};
   return {
     defaultExchangeRate: Number(s.defaultExchangeRate) || 520,
-    retentionMonths: s.retentionMonths != null ? Number(s.retentionMonths) : 24,
+    ivaPercent: s.ivaPercent != null ? Number(s.ivaPercent) : 13,
+    retentionMonths: s.retentionMonths != null ? Number(s.retentionMonths) : 12,
     autoPurge: s.autoPurge !== false,
   };
 }
@@ -175,26 +177,6 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'GET' && url.searchParams.get('action') === 'auth') {
-      send(res, 200, { ok: authOk(email, password) });
-      return;
-    }
-
-    if (!authOk(email, password)) {
-      send(res, 401, { error: 'unauthorized' });
-      return;
-    }
-
-    if (req.method === 'GET') {
-      try {
-        const data = loadData(password);
-        send(res, 200, stripSecrets(data));
-      } catch (e) {
-        send(res, 500, { error: 'decrypt_failed' });
-      }
-      return;
-    }
-
     if (req.method === 'POST') {
       let body = {};
       try {
@@ -204,8 +186,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      // Yurguen: login va en el body — no exigir headers antes de esta acción
       if (body.action === 'auth') {
         send(res, 200, { ok: authOk(body.email || '', body.password || '') });
+        return;
+      }
+
+      if (!authOk(email, password)) {
+        send(res, 401, { error: 'unauthorized' });
         return;
       }
 
@@ -224,6 +212,26 @@ const server = http.createServer(async (req, res) => {
       }
 
       send(res, 400, { error: 'unknown action' });
+      return;
+    }
+
+    if (!authOk(email, password)) {
+      send(res, 401, { error: 'unauthorized' });
+      return;
+    }
+
+    if (req.method === 'GET' && url.searchParams.get('action') === 'auth') {
+      send(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === 'GET') {
+      try {
+        const data = loadData(password);
+        send(res, 200, stripSecrets(data));
+      } catch (e) {
+        send(res, 500, { error: 'decrypt_failed' });
+      }
       return;
     }
 
