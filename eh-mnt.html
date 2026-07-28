@@ -45,6 +45,7 @@
       <button type="button" class="active" data-panel="resumen">Resumen</button>
       <button type="button" data-panel="pagos">Pagos del mes</button>
       <button type="button" data-panel="bitacora">Bitácora</button>
+      <button type="button" data-panel="precios">Precios</button>
       <button type="button" data-panel="clientes">Clientes</button>
     </nav>
 
@@ -156,6 +157,31 @@
         </div>
       </section>
 
+      <section class="admin-panel" id="panel-precios">
+        <div class="admin-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+            <h2 style="margin:0">Precios</h2>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewPrice">+ Precio</button>
+          </div>
+          <p style="margin-top:0;font-size:0.9rem;color:#7a8889">Categoría, costo, moneda y unidad de referencia.</p>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Categoría</th>
+                  <th>Costo</th>
+                  <th>Moneda</th>
+                  <th>Cantidad</th>
+                  <th>Unidad</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="pricesBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section class="admin-panel" id="panel-clientes">
         <div class="admin-clients-grid" style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:20px;align-items:start">
           <div class="admin-card">
@@ -187,6 +213,6 @@
     </div>
   </div>
 
-  <script src="eh-mnt.js?v=22"></script>
+  <script src="eh-mnt.js?v=27"></script>
 </body>
 </html>

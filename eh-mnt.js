@@ -18,7 +18,7 @@
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
   var state = {
-    data: { settings: { defaultExchangeRate: 520 }, clients: [], services: [], payments: [] },
+    data: { settings: { defaultExchangeRate: 520 }, clients: [], services: [], payments: [], prices: [] },
     selectedClientId: null,
     paymentTab: 'current',
     saving: false
@@ -225,6 +225,11 @@
     if (s.retentionMonths == null) s.retentionMonths = 12;
     if (s.autoPurge == null) s.autoPurge = true;
     if (s.ivaPercent == null) s.ivaPercent = 13;
+    // Yurguen: asegurar arreglo de precios en datos viejos
+    if (!Array.isArray(state.data.prices)) state.data.prices = [];
+    state.data.prices.forEach(function (p) {
+      if (p.unit === 'gigabyte') p.unit = 'byte';
+    });
   }
 
   function retentionMonths() {
@@ -274,6 +279,10 @@
 
   function serviceById(id) {
     return state.data.services.find(function (s) { return s.id === id; });
+  }
+
+  function priceById(id) {
+    return (state.data.prices || []).find(function (p) { return p.id === id; });
   }
 
   function paymentFromService(svc, period) {
@@ -969,8 +978,65 @@
     renderStats();
     renderPaymentsTable();
     renderBitacora();
+    renderPricesTable();
     renderClientList();
     renderClientDetail();
+  }
+
+  function renderPricesTable() {
+    var tbody = document.getElementById('pricesBody');
+    if (!tbody) return;
+    if (!Array.isArray(state.data.prices)) state.data.prices = [];
+    var rows = state.data.prices.slice().sort(function (a, b) {
+      return (a.category || '').localeCompare(b.category || '', 'es', { sensitivity: 'base' });
+    });
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Sin precios. Agregá el primero.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (p) {
+      var cur = p.currency || 'CRC';
+      var qty = p.quantity != null ? p.quantity : 1;
+      return '<tr>' +
+        '<td><strong>' + escapeHtml(p.category || '—') + '</strong></td>' +
+        '<td>' + formatMoney(p.cost, cur) + '</td>' +
+        '<td>' + escapeHtml(cur) + '</td>' +
+        '<td>' + Number(qty).toLocaleString('es-CR') + '</td>' +
+        '<td>' + escapeHtml(p.unit || '—') + '</td>' +
+        '<td><button type="button" class="btn btn-outline btn-sm" data-edit-price="' + p.id + '">Editar</button></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-edit-price]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var p = priceById(btn.getAttribute('data-edit-price'));
+        if (p) openPriceModal(p);
+      });
+    });
+  }
+
+  // Yurguen: unidades fijas = horas | paquete | unidades
+  function openPriceModal(price) {
+    var p = price || {};
+    var unit = p.unit || 'horas';
+    if (unit === 'gigabyte') unit = 'byte';
+    openModal(
+      price ? 'Editar precio' : 'Nuevo precio',
+      '<div class="field"><label>Categoría *</label><input id="mPriceCategory" value="' + escapeHtml(p.category || '') + '" placeholder="Ej. Desarrollo web"></div>' +
+      '<div class="field-row field-row-svc">' +
+      '<div class="field"><label>Costo *</label><input id="mPriceCost" type="number" step="any" value="' + (p.cost != null ? p.cost : '') + '"></div>' +
+      '<div class="field"><label>Moneda</label><select id="mPriceCurrency">' +
+      '<option value="CRC"' + ((p.currency || 'CRC') === 'CRC' ? ' selected' : '') + '>Colones (CRC)</option>' +
+      '<option value="USD"' + (p.currency === 'USD' ? ' selected' : '') + '>Dólares (USD)</option></select></div></div>' +
+      '<div class="field-row field-row-svc">' +
+      '<div class="field"><label>Cantidad *</label><input id="mPriceQty" type="number" min="0" step="any" value="' + (p.quantity != null ? p.quantity : 1) + '"></div>' +
+      '<div class="field"><label>Unidad *</label><select id="mPriceUnit">' +
+      '<option value="horas"' + (unit === 'horas' ? ' selected' : '') + '>Horas</option>' +
+      '<option value="paquete"' + (unit === 'paquete' ? ' selected' : '') + '>Paquete</option>' +
+      '<option value="unidades"' + (unit === 'unidades' ? ' selected' : '') + '>Unidades</option>' +
+      '<option value="byte"' + (unit === 'byte' ? ' selected' : '') + '>Byte</option>' +
+      '<option value="solicitudes"' + (unit === 'solicitudes' ? ' selected' : '') + '>Solicitudes</option></select></div></div>',
+      'price',
+      p.id || null
+    );
   }
 
   function openModal(title, html, mode, id) {
@@ -981,8 +1047,10 @@
     var modalEl = modalBackdrop && modalBackdrop.querySelector('.modal');
     if (modalEl) modalEl.classList.toggle('modal--wide', mode === 'service');
     if (modalDelete) {
-      modalDelete.hidden = !(mode === 'service' && id);
-      modalDelete.textContent = 'Quitar servicio';
+      // Yurguen: borrar servicio o precio solo al editar
+      var canDelete = !!(id && (mode === 'service' || mode === 'price'));
+      modalDelete.hidden = !canDelete;
+      modalDelete.textContent = mode === 'price' ? 'Quitar precio' : 'Quitar servicio';
     }
     modalBackdrop.classList.add('open');
   }
@@ -996,15 +1064,26 @@
     modalEntityId = null;
   }
 
-  // Yurguen: quitar servicio solo desde el modal (evita clics accidentales)
-  function deleteServiceFromModal() {
-    if (modalMode !== 'service' || !modalEntityId) return;
-    if (!confirm('¿Quitar este servicio y todos sus cobros?')) return;
-    var sid = modalEntityId;
-    state.data.services = state.data.services.filter(function (s) { return s.id !== sid; });
-    state.data.payments = state.data.payments.filter(function (p) { return p.serviceId !== sid; });
-    closeModal();
-    persist().then(ensureMonthPayments);
+  // Yurguen: quitar servicio o precio desde el modal
+  function deleteFromModal() {
+    if (modalMode === 'service') {
+      if (!modalEntityId) return;
+      if (!confirm('¿Quitar este servicio y todos sus cobros?')) return;
+      var sid = modalEntityId;
+      state.data.services = state.data.services.filter(function (s) { return s.id !== sid; });
+      state.data.payments = state.data.payments.filter(function (p) { return p.serviceId !== sid; });
+      closeModal();
+      persist().then(ensureMonthPayments);
+      return;
+    }
+    if (modalMode === 'price') {
+      if (!modalEntityId) return;
+      if (!confirm('¿Quitar este precio?')) return;
+      var pid = modalEntityId;
+      state.data.prices = (state.data.prices || []).filter(function (p) { return p.id !== pid; });
+      closeModal();
+      persist();
+    }
   }
 
   function bindServiceModalFields() {
@@ -1207,6 +1286,36 @@
         p.description = document.getElementById('mPayDesc').value.trim();
         p.notes = p.description;
       }
+    } else if (modalMode === 'price') {
+      var category = document.getElementById('mPriceCategory').value.trim();
+      var costRaw = document.getElementById('mPriceCost').value.trim();
+      var cost = Number(costRaw);
+      var currency = document.getElementById('mPriceCurrency').value;
+      var qtyRaw = document.getElementById('mPriceQty').value.trim();
+      var quantity = Number(qtyRaw);
+      var unit = document.getElementById('mPriceUnit').value;
+      if (!category || costRaw === '' || isNaN(cost) || qtyRaw === '' || isNaN(quantity) || quantity < 0) {
+        alert('Categoría, costo y cantidad son obligatorios.');
+        return;
+      }
+      if (['horas', 'paquete', 'unidades', 'byte', 'solicitudes'].indexOf(unit) === -1) {
+        alert('Unidad inválida.');
+        return;
+      }
+      var payloadPrice = {
+        category: category,
+        cost: cost,
+        currency: currency,
+        quantity: quantity,
+        unit: unit
+      };
+      if (modalEntityId) Object.assign(priceById(modalEntityId), payloadPrice);
+      else {
+        payloadPrice.id = uid();
+        payloadPrice.createdAt = new Date().toISOString();
+        if (!Array.isArray(state.data.prices)) state.data.prices = [];
+        state.data.prices.push(payloadPrice);
+      }
     }
     closeModal();
     persist().then(ensureMonthPayments);
@@ -1248,6 +1357,8 @@
   });
 
   document.getElementById('btnNewClient').addEventListener('click', function () { openClientModal(null); });
+  var btnNewPrice = document.getElementById('btnNewPrice');
+  if (btnNewPrice) btnNewPrice.addEventListener('click', function () { openPriceModal(null); });
   document.getElementById('btnGenMonth').addEventListener('click', function () {
     ensureMonthPayments().then(function () {
       renderAll();
@@ -1295,7 +1406,7 @@
   });
   if (modalSave) modalSave.addEventListener('click', saveModal);
   if (modalCancel) modalCancel.addEventListener('click', closeModal);
-  if (modalDelete) modalDelete.addEventListener('click', deleteServiceFromModal);
+  if (modalDelete) modalDelete.addEventListener('click', deleteFromModal);
   if (modalBackdrop) {
     modalBackdrop.addEventListener('click', function (e) {
       if (e.target === modalBackdrop) closeModal();
