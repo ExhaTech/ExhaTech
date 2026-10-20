@@ -3,21 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Yurguen: módulo oculto — no indexar en buscadores -->
+  <!-- Yurguen: servicio oculto — no indexar -->
   <meta name="robots" content="noindex, nofollow" />
-  <!-- Yurguen: URL y assets discretos (no usar nombre "admin") -->
   <title>Exha — Acceso</title>
-  <link rel="stylesheet" href="eh-mnt.css?v=17" />
+  <link rel="stylesheet" href="eh-mnt.css?v=57" />
 </head>
 <body>
-  <!-- Yurguen: acceso con correo y contraseña; datos en data/cobros.json vía API -->
   <section class="admin-login" id="adminLogin">
     <div class="admin-login-box">
-      <h1>Exha — Cobros</h1>
+      <h1>Exha — Presupuesto</h1>
       <form id="loginForm" novalidate>
         <div class="field">
-          <label for="emailInput">Correo</label>
-          <input type="email" id="emailInput" autocomplete="username" required />
+          <label for="usernameInput">Usuario</label>
+          <input type="text" id="usernameInput" autocomplete="username" required />
         </div>
         <div class="field">
           <label for="passwordInput">Contraseña</label>
@@ -32,141 +30,221 @@
 
   <div class="admin-shell" id="adminShell">
     <header class="admin-top">
-      <h1>Administración ExhaTech — <span id="periodLabel"></span></h1>
+      <div class="admin-top-brand">
+        <h1>Presupuesto familiar — <span id="userLabel"></span></h1>
+        <div class="top-field top-field--fx" id="fxBar">
+          <span class="fx-rate-label" id="fxHint">1 $ = ₡—</span>
+          <input type="number" id="fxRateInput" min="0" step="0.01" inputmode="decimal" placeholder="450" aria-label="Tipo de cambio" title="Colones por 1 dólar" />
+          <button type="button" class="btn btn-primary btn-sm" id="btnSaveFx" title="Guardar tipo de cambio">Guardar</button>
+        </div>
+      </div>
       <div class="admin-top-actions">
-        <button type="button" class="btn btn-ghost btn-sm" id="btnExport">Exportar JSON</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="btnImport">Importar JSON</button>
-        <input type="file" id="importFile" accept=".json" hidden />
+        <label class="top-field" for="cycleSelect">
+          <span>Ciclo</span>
+          <select id="cycleSelect" class="cycle-select" aria-label="Ciclo"></select>
+        </label>
         <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
       </div>
     </header>
 
-    <nav class="admin-nav">
+    <nav class="admin-nav" aria-label="Secciones">
       <button type="button" class="active" data-panel="resumen">Resumen</button>
-      <button type="button" data-panel="pagos">Pagos del mes</button>
-      <button type="button" data-panel="bitacora">Bitácora</button>
-      <button type="button" data-panel="clientes">Clientes</button>
+      <button type="button" data-panel="ejecucion">Ejecución</button>
+      <button type="button" data-panel="presupuesto">Presupuesto</button>
+      <button type="button" data-panel="historico">Histórico</button>
+      <button type="button" data-panel="prestamos">Préstamos</button>
+      <button type="button" data-panel="cuenta">Mi cuenta</button>
+      <button type="button" data-panel="usuarios" id="navUsuarios" hidden>Usuarios</button>
     </nav>
 
     <main class="admin-main">
       <p class="admin-msg error" id="apiError" hidden></p>
+      <p id="cycleRangeLabel" class="cycle-range-label"></p>
+      <p id="cycleClosedBanner" class="cycle-closed-banner" hidden>Periodo cerrado: tipo de cambio, fechas e información quedan congelados y no se pueden cambiar.</p>
+      <p id="cycleExpiredBanner" class="cycle-expired-banner" hidden>Este ciclo ya terminó. No podés agregar más movimientos: cerralo en Ejecución (o extendé el fin cambiando el día de inicio en Mi cuenta).</p>
+
       <section class="admin-panel active" id="panel-resumen">
+        <div class="resumen-toolbar">
+          <span class="resumen-toolbar-label">Ver montos en</span>
+          <div class="currency-toggle" role="group" aria-label="Moneda del resumen">
+            <button type="button" class="currency-toggle__btn active" data-chart-cur="CRC" id="btnChartCrc">₡ Colones</button>
+            <button type="button" class="currency-toggle__btn" data-chart-cur="USD" id="btnChartUsd">$ Dólares</button>
+          </div>
+        </div>
         <div class="admin-stats">
-          <div class="admin-stats-row">
-            <div class="stat-card"><strong id="statCobradoDone">₡0</strong><span>Cobrado (ejecutado)</span></div>
-            <div class="stat-card"><strong id="statCobradoPending">₡0</strong><span>Cobrado pendiente</span></div>
-            <div class="stat-card"><strong id="statPagadoDone">₡0</strong><span>Pagado (ejecutado)</span></div>
-            <div class="stat-card"><strong id="statPagadoPending">₡0</strong><span>Pagado pendiente</span></div>
-          </div>
-          <div class="admin-stats-row admin-stats-row--secondary">
-            <div class="stat-card stat-card--highlight"><strong id="statNetDone">₡0</strong><span>Valor actual</span><small id="statNetDoneHint">Cobrado − pagado (ejecutado)</small></div>
-            <div class="stat-card stat-card--highlight"><strong id="statNetMonth">₡0</strong><span>Proyección del mes</span><small id="statNetMonthHint">Incluye pendientes</small></div>
-            <div class="stat-card"><strong id="statClients">0</strong><span>Clientes activos</span></div>
-          </div>
-        </div>
-        <div class="admin-settings-grid">
-          <div class="admin-card">
-            <h2>Tipo de cambio y cargos</h2>
-            <p>El <strong>total en tabla</strong> = base en colones + IVA. La <strong>tx internacional</strong> es opcional por servicio (solo USD).</p>
-            <div class="field-row">
-              <div class="field">
-                <label for="defaultExchangeRate">₡ por $1</label>
-                <input type="number" id="defaultExchangeRate" min="1" step="0.01" />
-              </div>
-              <div class="field">
-                <label for="ivaPercent">IVA (%)</label>
-                <input type="number" id="ivaPercent" min="0" max="100" step="any" />
-              </div>
-              <div class="field" style="display:flex;align-items:flex-end">
-                <button type="button" class="btn btn-primary" id="btnSaveRate">Guardar</button>
-              </div>
+          <div class="admin-stats-row admin-stats-row--summary">
+            <div class="stat-card stat-card--dual">
+              <span class="stat-card__title">Presupuestado</span>
+              <div class="stat-dual-line"><em>Ingresos</em><strong id="statPlanIncome">₡0</strong></div>
+              <div class="stat-dual-line"><em>Egresos</em><strong id="statPlanExpense">₡0</strong></div>
+            </div>
+            <div class="stat-card stat-card--dual">
+              <span class="stat-card__title">Ejecutados</span>
+              <div class="stat-dual-line"><em>Ingresos</em><strong id="statActIncome">₡0</strong></div>
+              <div class="stat-dual-line"><em>Egresos</em><strong id="statActExpense">₡0</strong></div>
+            </div>
+            <div class="stat-card stat-card--highlight">
+              <strong id="statActBal">₡0</strong>
+              <span>Balance real</span>
             </div>
           </div>
-          <div class="admin-card">
-            <h2>Bitácora y limpieza</h2>
-            <p>Cada cobro <strong>marcado como pagado</strong> queda en la bitácora con fecha, monto y descripción.</p>
-            <div class="field-row" style="align-items:flex-end">
-              <div class="field">
-                <label for="retentionMonths">Conservar historial</label>
-                <select id="retentionMonths">
-                  <option value="12">12 meses (1 año)</option>
-                  <option value="0">Sin límite</option>
-                </select>
-              </div>
-              <div class="field">
-                <label><input type="checkbox" id="autoPurge" checked /> Limpieza automática al entrar</label>
-              </div>
-            </div>
-            <p id="retentionHint" style="font-size:0.88rem;color:#7a8889;margin:8px 0 12px"></p>
-            <button type="button" class="btn btn-outline" id="btnSaveRetention">Guardar política</button>
-          </div>
         </div>
-        <div class="admin-card">
-          <h2>Uso rápido</h2>
-          <p><strong>Guardar:</strong> cada cambio (cliente, servicio, marcar pagado…) se escribe solo en <code>data/cobros.json</code> ya cifrado. Después <code>git push</code> para compartir con tu socio.<br>
-          Clave solo en <code>data/auth.local.json</code> (editar a mano si algún día la cambian).</p>
-          <button type="button" class="btn btn-primary" id="btnGenMonth">Generar / actualizar cobros del mes</button>
+        <div class="chart-grid chart-grid--bars">
+          <div class="admin-card chart-block">
+            <h3>Ingresos</h3>
+            <p class="chart-sub" id="chartIncomeSub">Presupuestado vs ejecutado</p>
+            <div class="vbar-chart" id="chartIncome"></div>
+          </div>
+          <div class="admin-card chart-block">
+            <h3>Egresos</h3>
+            <p class="chart-sub" id="chartExpenseSub">Presupuestado vs ejecutado</p>
+            <div class="vbar-chart" id="chartExpense"></div>
+          </div>
+          <div class="admin-card chart-block chart-block--wide">
+            <h3>Gastos por categoría</h3>
+            <p class="chart-sub" id="chartPieSub">Distribución de egresos ejecutados</p>
+            <div class="pie-chart" id="chartByCategory"></div>
+          </div>
         </div>
       </section>
 
-      <section class="admin-panel" id="panel-pagos">
+      <section class="admin-panel" id="panel-ejecucion">
+        <div class="panel-totals">
+          <div class="resumen-toolbar">
+            <span class="resumen-toolbar-label">Ver montos en</span>
+            <div class="currency-toggle" role="group" aria-label="Moneda de ejecución">
+              <button type="button" class="currency-toggle__btn active" data-chart-cur="CRC">₡ Colones</button>
+              <button type="button" class="currency-toggle__btn" data-chart-cur="USD">$ Dólares</button>
+            </div>
+          </div>
+          <div class="admin-stats-row admin-stats-row--panel admin-stats-row--exe">
+            <div class="stat-card"><strong id="exeStatIncome">₡0</strong><span>Ingresos ejecutados</span></div>
+            <div class="stat-card"><strong id="exeStatExpense">₡0</strong><span>Egresos ejecutados</span></div>
+            <div class="stat-card stat-card--highlight"><strong id="exeStatBalance">₡0</strong><span>Balance</span></div>
+          </div>
+        </div>
         <div class="admin-card">
-          <h2>Pagos por mes</h2>
-          <div class="payments-tabs" id="paymentsTabs"></div>
+          <div class="panel-head">
+            <h2>Ejecución del ciclo</h2>
+            <div class="panel-head-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="btnNewExe">+ Movimiento</button>
+              <button type="button" class="btn btn-outline btn-sm" id="btnCloseCycle" hidden>Cerrar ciclo</button>
+            </div>
+          </div>
+          <p class="panel-hint">Registrá lo que realmente pasó este ciclo. Al cerrarlo queda solo lectura y se abre el siguiente.</p>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Fecha</th><th>Categoría</th><th>Tipo</th><th>Monto</th><th></th></tr></thead>
+              <tbody id="exeBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-presupuesto">
+        <div class="panel-totals">
+          <div class="resumen-toolbar">
+            <span class="resumen-toolbar-label">Ver montos en</span>
+            <div class="currency-toggle" role="group" aria-label="Moneda del presupuesto">
+              <button type="button" class="currency-toggle__btn active" data-chart-cur="CRC">₡ Colones</button>
+              <button type="button" class="currency-toggle__btn" data-chart-cur="USD">$ Dólares</button>
+            </div>
+          </div>
+          <div class="admin-stats-row admin-stats-row--panel">
+            <div class="stat-card"><strong id="planStatIncome">₡0</strong><span>Ingresos planeados</span></div>
+            <div class="stat-card"><strong id="planStatExpense">₡0</strong><span>Egresos planeados</span></div>
+            <div class="stat-card stat-card--highlight"><strong id="planStatBalance">₡0</strong><span id="planStatBalanceLbl">Margen</span></div>
+          </div>
+        </div>
+        <div class="admin-card">
+          <div class="panel-head">
+            <h2>Categorías y presupuesto</h2>
+            <div class="panel-head-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="btnNewCat">+ Categoría</button>
+            </div>
+          </div>
+          <p class="panel-hint">Cada categoría puede tener varios presupuestos (con etiqueta opcional). Acá solo se arma el plan; lo ejecutado va en Ejecución.</p>
+          <div id="planBody" class="cat-plan-list"></div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-historico">
+        <div class="admin-card">
+          <div class="panel-head">
+            <h2>Histórico de gastos</h2>
+            <div class="hist-filter">
+              <label for="histCycleFilter">Ciclo</label>
+              <select id="histCycleFilter"></select>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Fecha</th><th>Ciclo</th><th>Categoría</th><th>Monto</th><th>En ₡</th></tr></thead>
+              <tbody id="histBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-prestamos">
+        <div class="admin-card">
+          <div class="panel-head">
+            <h2>Préstamos</h2>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewLoan">+ Persona</button>
+          </div>
+          <p class="panel-hint">Histórico de dinero que prestaste o te prestaron. No suma al presupuesto ni a la ejecución; solo control de saldos (sumar / restar).</p>
+          <div id="loansList" class="loans-list"></div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-cuenta">
+        <div class="admin-card admin-card--narrow">
+          <h2>Mi cuenta</h2>
+          <div class="field">
+            <label for="myBillingDay">Día de inicio del ciclo (1-28)</label>
+            <input type="number" id="myBillingDay" min="1" max="28" inputmode="numeric" />
+            <p class="panel-hint" style="margin-top:6px">Ej. día 1 = el ciclo va del 1 al último día del mes. Día 15 = del 15 al 14 del mes siguiente.</p>
+          </div>
+          <button type="button" class="btn btn-primary" id="btnSaveProfile">Guardar día de inicio</button>
+          <hr class="panel-divider" />
+          <h3>Cambiar contraseña</h3>
+          <div class="field">
+            <label for="curPass">Contraseña actual</label>
+            <input type="password" id="curPass" autocomplete="current-password" />
+          </div>
+          <div class="field">
+            <label for="newPass">Contraseña nueva</label>
+            <input type="password" id="newPass" autocomplete="new-password" />
+          </div>
+          <div class="field">
+            <label for="newPass2">Repetir nueva</label>
+            <input type="password" id="newPass2" autocomplete="new-password" />
+          </div>
+          <button type="button" class="btn btn-primary" id="btnChangePass">Guardar contraseña</button>
+          <p class="admin-msg ok" id="passMsg" hidden></p>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-usuarios">
+        <div class="admin-card">
+          <div class="panel-head">
+            <h2>Usuarios</h2>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewUser">+ Usuario</button>
+          </div>
           <div class="admin-table-wrap">
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th>Cliente</th>
-                  <th>Servicio</th>
-                  <th>Descripción</th>
-                  <th>Periodicidad</th>
-                  <th>Fecha cobro</th>
-                  <th>Total (CRC)</th>
+                  <th>Usuario</th>
+                  <th>Nombre</th>
+                  <th>Rol</th>
+                  <th>Inicio</th>
                   <th>Estado</th>
-                  <th>Acción</th>
+                  <th></th>
                 </tr>
               </thead>
-              <tbody id="paymentsBody"></tbody>
-              <tfoot id="paymentsFoot"></tfoot>
+              <tbody id="usersBody"></tbody>
             </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="admin-panel" id="panel-bitacora">
-        <div class="admin-card">
-          <h2>Bitácora de pagos</h2>
-          <p style="margin-top:0;font-size:0.9rem;color:#7a8889">Solo cobros confirmados como pagados. <span id="bitacoraCount"></span></p>
-          <div class="admin-table-wrap">
-            <table class="admin-table">
-              <thead>
-                <tr>
-                  <th>Fecha pago</th>
-                  <th>Período</th>
-                  <th>Cliente</th>
-                  <th>Servicio</th>
-                  <th>Descripción</th>
-                  <th>Total (CRC)</th>
-                </tr>
-              </thead>
-              <tbody id="bitacoraBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="admin-panel" id="panel-clientes">
-        <div class="admin-clients-grid" style="display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:20px;align-items:start">
-          <div class="admin-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <h2 style="margin:0">Clientes</h2>
-              <button type="button" class="btn btn-primary btn-sm" id="btnNewClient">+ Nuevo</button>
-            </div>
-            <div class="client-list" id="clientList"></div>
-          </div>
-          <div class="admin-card" id="clientDetail">
-            <p class="empty-state">Seleccioná un cliente de la lista.</p>
           </div>
         </div>
       </section>
@@ -178,7 +256,7 @@
       <h3 id="modalTitle"></h3>
       <div id="modalBody"></div>
       <div class="modal-actions">
-        <button type="button" class="btn btn-danger" id="modalDelete" hidden>Quitar servicio</button>
+        <button type="button" class="btn btn-danger" id="modalDelete" hidden>Eliminar</button>
         <div class="modal-actions-end">
           <button type="button" class="btn btn-outline" id="modalCancel">Cancelar</button>
           <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
@@ -187,6 +265,6 @@
     </div>
   </div>
 
-  <script src="eh-mnt.js?v=28"></script>
+  <script src="eh-mnt.js?v=68"></script>
 </body>
 </html>

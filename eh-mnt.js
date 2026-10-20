@@ -1,575 +1,22 @@
-/* Yurguen: panel interno (eh-mnt.*) — cobros vía API; el sitio público no lee cobros.json */
+/* Yurguen: presupuesto familiar — gráficos, catálogos, plan, ejecución, histórico */
 (function () {
   'use strict';
 
-  var AUTH_KEY = 'exha_admin_auth';
-  var EMAIL_KEY = 'exha_admin_email';
-  var PASS_KEY = 'exha_admin_password';
+  var TOKEN_KEY = 'exha_budget_token';
+  var USER_KEY = 'exha_budget_user';
+  var CHART_CUR_KEY = 'exha_budget_chart_cur';
   var API = 'api/eh-data.php';
 
-  var PERIOD_LABELS = {
-    monthly: 'Mensual',
-    quarterly: 'Trimestral',
-    yearly: 'Anual'
-  };
-
-  // Yurguen: nombres cortos de mes para cobros anuales/trimestrales
-  var MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
   var state = {
-    data: { settings: { defaultExchangeRate: 520 }, clients: [], services: [], payments: [] },
-    selectedClientId: null,
-    paymentTab: 'current',
-    saving: false
+    user: null,
+    users: [],
+    budget: null,
+    modalMode: null,
+    modalId: null,
+    modalLoanId: null,
+    chartCurrency: (sessionStorage.getItem(CHART_CUR_KEY) === 'USD' ? 'USD' : 'CRC')
   };
 
-  function uid() {
-    return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-  }
-
-  function getSessionEmail() {
-    return sessionStorage.getItem(EMAIL_KEY) || '';
-  }
-
-  function getSessionPassword() {
-    return sessionStorage.getItem(PASS_KEY) || '';
-  }
-
-  function isAuthed() {
-    return sessionStorage.getItem(AUTH_KEY) === '1'
-      && !!getSessionEmail()
-      && !!getSessionPassword();
-  }
-
-  function setAuthed(ok, email, password) {
-    if (ok) {
-      sessionStorage.setItem(AUTH_KEY, '1');
-      sessionStorage.setItem(EMAIL_KEY, email);
-      sessionStorage.setItem(PASS_KEY, password);
-    } else {
-      sessionStorage.removeItem(AUTH_KEY);
-      sessionStorage.removeItem(EMAIL_KEY);
-      sessionStorage.removeItem(PASS_KEY);
-    }
-  }
-
-  function periodNow() {
-    var d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-  }
-
-  function defaultRate() {
-    return Number(state.data.settings && state.data.settings.defaultExchangeRate) || 520;
-  }
-
-  function ivaPercent() {
-    var v = state.data.settings && state.data.settings.ivaPercent;
-    return v != null ? Number(v) : 13;
-  }
-
-  // Yurguen: tx del pago o del servicio vinculado (USD)
-  function resolveItemIntlTx(item, svc) {
-    if ((item.currency || 'CRC') !== 'USD') return 0;
-    var v = item.intlTxPercent;
-    if ((v == null || v === '') && svc) v = svc.intlTxPercent;
-    if (v == null || v === '') return 0;
-    var n = Number(v);
-    return isNaN(n) || n < 0 ? 0 : n;
-  }
-
-  // Yurguen: monto de servicio (amountMonthly) o de pago (amount)
-  function itemAmount(item) {
-    if (item.amount != null && item.amount !== '') return Number(item.amount);
-    if (item.amountMonthly != null && item.amountMonthly !== '') return Number(item.amountMonthly);
-    return 0;
-  }
-
-  // Yurguen: servicio exonerado no lleva IVA en el total
-  function resolveItemIvaExempt(item, svc) {
-    if (item.ivaExempt === true) return true;
-    if (svc && svc.ivaExempt === true) return true;
-    return false;
-  }
-
-  function paymentBaseCrc(item) {
-    if (item.amountCrc != null && item.amountCrc !== '') return Number(item.amountCrc);
-    var cur = item.currency || 'CRC';
-    var rate = cur === 'USD' ? resolveRate(item) : null;
-    return amountToCrc(itemAmount(item), cur, rate);
-  }
-
-  function calcFinalCrc(baseCrc, currency, intlPct, ivaExempt) {
-    var base = Number(baseCrc) || 0;
-    var iva = ivaExempt ? 0 : Math.round(base * ivaPercent() / 100);
-    var pct = currency === 'USD' ? (Number(intlPct) || 0) : 0;
-    var intl = pct > 0 ? Math.round(base * pct / 100) : 0;
-    return { base: base, iva: iva, intl: intl, total: base + iva + intl, ivaExempt: !!ivaExempt };
-  }
-
-  function paymentTotalCrc(p, svc) {
-    return calcFinalCrc(
-      paymentBaseCrc(p),
-      p.currency || 'CRC',
-      resolveItemIntlTx(p, svc),
-      resolveItemIvaExempt(p, svc)
-    ).total;
-  }
-
-  function formatTotalDisplay(item, svc) {
-    var cur = item.currency || 'CRC';
-    var exempt = resolveItemIvaExempt(item, svc);
-    var parts = calcFinalCrc(paymentBaseCrc(item), cur, resolveItemIntlTx(item, svc), exempt);
-    var html = '<strong>' + formatMoney(parts.total, 'CRC') + '</strong>';
-    var extras = [];
-    if (parts.iva) extras.push('IVA ' + formatMoney(parts.iva, 'CRC'));
-    if (parts.intl) extras.push('Tx ' + formatMoney(parts.intl, 'CRC'));
-    if (extras.length) {
-      html += '<br><small>Base ' + formatMoney(parts.base, 'CRC') + ' + ' + extras.join(' + ') + '</small>';
-    } else if (exempt) {
-      html += '<br><small>Sin IVA (exonerado)</small>';
-    }
-    if (cur === 'USD') {
-      html += '<br><small>' + formatMoney(itemAmount(item), 'USD') + '</small>';
-    }
-    return html;
-  }
-
-  function resolveRate(svc) {
-    if (!svc || svc.currency !== 'USD') return null;
-    var r = svc.exchangeRate;
-    return r != null && r !== '' ? Number(r) : defaultRate();
-  }
-
-  function amountToCrc(amount, currency, exchangeRate) {
-    var n = Number(amount) || 0;
-    if (currency === 'USD') {
-      var rate = exchangeRate != null ? Number(exchangeRate) : defaultRate();
-      return Math.round(n * rate);
-    }
-    return Math.round(n);
-  }
-
-  function formatMoney(n, cur) {
-    var num = Number(n) || 0;
-    if (cur === 'USD') return '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return '₡' + num.toLocaleString('es-CR');
-  }
-
-  function formatAmountDisplay(item) {
-    var cur = item.currency || 'CRC';
-    var amt = item.amountMonthly != null ? item.amountMonthly : item.amount;
-    if (cur === 'USD') {
-      var rate = item.exchangeRate != null && item.exchangeRate !== ''
-        ? Number(item.exchangeRate)
-        : (resolveRate(item) || defaultRate());
-      var crc = item.amountCrc != null ? Number(item.amountCrc) : amountToCrc(amt, 'USD', rate);
-      return formatMoney(amt, 'USD') + ' <small>(₡' + crc.toLocaleString('es-CR') + ' @ ' + rate + ')</small>';
-    }
-    return formatMoney(amt, 'CRC');
-  }
-
-  // Yurguen: mensaje legible con lo que devolvió la API
-  function describeApiResult(status, json, fallback) {
-    var parts = [];
-    if (status) parts.push('HTTP ' + status);
-    if (json && json.error) parts.push(String(json.error));
-    if (json && json.ok === false) parts.push('ok: false');
-    if (!parts.length && fallback) parts.push(fallback);
-    return parts.join(' — ') || 'Error desconocido';
-  }
-
-  function apiFetch(method, body, query) {
-    var url = API + (query || '');
-    var opts = {
-      method: method,
-      headers: {
-        'X-Admin-Email': getSessionEmail(),
-        'X-Admin-Password': getSessionPassword()
-      }
-    };
-    if (body) {
-      opts.headers['Content-Type'] = 'application/json';
-      opts.body = JSON.stringify(body);
-    }
-    return fetch(url, opts).then(function (res) {
-      return res.json().then(function (json) {
-        if (!res.ok) {
-          var err = new Error(describeApiResult(res.status, json, 'Error de servidor'));
-          err.status = res.status;
-          err.json = json;
-          throw err;
-        }
-        return json;
-      }).catch(function (parseErr) {
-        if (parseErr.status) throw parseErr;
-        var err = new Error('HTTP ' + res.status + ' — respuesta no válida');
-        err.status = res.status;
-        throw err;
-      });
-    });
-  }
-
-  function loadData() {
-    return apiFetch('GET').then(function (data) {
-      state.data = data;
-      normalizeSettings();
-      return data;
-    });
-  }
-
-  // Yurguen: política de retención del historial pagado (bitácora)
-  function normalizeSettings() {
-    if (!state.data.settings) state.data.settings = {};
-    var s = state.data.settings;
-    if (s.retentionMonths == null) s.retentionMonths = 12;
-    if (s.autoPurge == null) s.autoPurge = true;
-    if (s.ivaPercent == null) s.ivaPercent = 13;
-  }
-
-  function retentionMonths() {
-    var m = Number(state.data.settings.retentionMonths);
-    return m > 0 ? m : 0;
-  }
-
-  function cutoffPeriod() {
-    var months = retentionMonths();
-    if (!months) return null;
-    var d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - months);
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-  }
-
-  function purgeOldPayments() {
-    var cutoff = cutoffPeriod();
-    if (!cutoff) return 0;
-    var before = state.data.payments.length;
-    state.data.payments = state.data.payments.filter(function (p) {
-      return p.period >= cutoff;
-    });
-    return before - state.data.payments.length;
-  }
-
-  // Yurguen: cada guardado cifra cobros.json con la clave de la sesión (auth.local.json)
-  function saveData() {
-    if (state.saving) return Promise.resolve();
-    state.saving = true;
-    return apiFetch('POST', { action: 'save', data: state.data }).finally(function () {
-      state.saving = false;
-    });
-  }
-
-  function persist() {
-    return saveData().then(function () {
-      return loadData();
-    }).then(function () {
-      renderAll();
-    });
-  }
-
-  function clientById(id) {
-    return state.data.clients.find(function (c) { return c.id === id; });
-  }
-
-  function serviceById(id) {
-    return state.data.services.find(function (s) { return s.id === id; });
-  }
-
-  function paymentFromService(svc, period) {
-    var rate = resolveRate(svc);
-    var cur = svc.currency || 'CRC';
-    var amt = itemAmount(svc);
-    return {
-      id: uid(),
-      serviceId: svc.id,
-      period: period,
-      amount: amt,
-      currency: cur,
-      exchangeRate: cur === 'USD' ? rate : null,
-      intlTxPercent: cur === 'USD' && svc.intlTxPercent != null && svc.intlTxPercent !== ''
-        ? Number(svc.intlTxPercent) : null,
-      ivaExempt: !!svc.ivaExempt,
-      amountCrc: amountToCrc(amt, cur, rate),
-      status: 'pending',
-      paidAt: null,
-      description: svc.description || '',
-      notes: ''
-    };
-  }
-
-  function serviceDueInPeriod(svc, period) {
-    var per = svc.periodicity || 'monthly';
-    var month = Number(String(period).split('-')[1]);
-    if (per === 'monthly') return true;
-    var start = Number(svc.billingMonth) || 1;
-    if (per === 'yearly') return month === start;
-    if (per === 'quarterly') return ((month - start + 12) % 12) % 3 === 0;
-    return false;
-  }
-
-  // Yurguen: un cobro solo aplica si el servicio corresponde en ese período
-  function paymentAppliesToPeriod(p, svc) {
-    return !!(svc && serviceDueInPeriod(svc, p.period));
-  }
-
-  function pruneInvalidPayments() {
-    var before = state.data.payments.length;
-    state.data.payments = state.data.payments.filter(function (p) {
-      var svc = serviceById(p.serviceId);
-      if (!svc) return false;
-      if (paymentAppliesToPeriod(p, svc)) return true;
-      return p.status === 'paid';
-    });
-    return before - state.data.payments.length;
-  }
-
-  function formatBillingSchedule(svc) {
-    var per = svc.periodicity || 'monthly';
-    var day = svc.billingDay || 1;
-    if (per === 'yearly' || per === 'quarterly') {
-      var m = Number(svc.billingMonth) || 1;
-      return MONTH_NAMES[m - 1] + ', día ' + day;
-    }
-    return 'Día ' + day;
-  }
-
-  function monthSelectHtml(selected) {
-    var sel = Number(selected) || 1;
-    return MONTH_NAMES.map(function (name, i) {
-      var v = i + 1;
-      return '<option value="' + v + '"' + (v === sel ? ' selected' : '') + '>' + name + '</option>';
-    }).join('');
-  }
-
-  function syncPaymentFromService(p, svc) {
-    var rate = resolveRate(svc);
-    var cur = svc.currency || 'CRC';
-    var amt = itemAmount(svc);
-    p.amount = amt;
-    p.currency = cur;
-    p.exchangeRate = cur === 'USD' ? rate : null;
-    p.intlTxPercent = cur === 'USD' && svc.intlTxPercent != null && svc.intlTxPercent !== ''
-      ? Number(svc.intlTxPercent) : null;
-    p.ivaExempt = !!svc.ivaExempt;
-    p.amountCrc = amountToCrc(amt, cur, rate);
-    if (!paymentDescription(p)) p.description = svc.description || '';
-  }
-
-  function shiftPeriod(period, deltaMonths) {
-    var parts = String(period).split('-');
-    var d = new Date(Number(parts[0]), Number(parts[1]) - 1 + deltaMonths, 1, 12, 0, 0, 0);
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-  }
-
-  // Yurguen: anterior, actual y posterior para la tabla de pagos
-  function paymentViewPeriods() {
-    var cur = periodNow();
-    return [shiftPeriod(cur, -1), cur, shiftPeriod(cur, 1)];
-  }
-
-  function periodForPaymentTab(tab) {
-    var cur = periodNow();
-    if (tab === 'prev') return shiftPeriod(cur, -1);
-    if (tab === 'next') return shiftPeriod(cur, 1);
-    return cur;
-  }
-
-  function paymentNeedsSync(p, svc) {
-    if (Math.abs(itemAmount(p) - itemAmount(svc)) > 0.001) return true;
-    if ((p.currency || 'CRC') !== (svc.currency || 'CRC')) return true;
-    if (!!p.ivaExempt !== !!svc.ivaExempt) return true;
-    var svcIntl = svc.currency === 'USD' && svc.intlTxPercent != null && svc.intlTxPercent !== ''
-      ? Number(svc.intlTxPercent) : null;
-    var payIntl = p.intlTxPercent != null && p.intlTxPercent !== '' ? Number(p.intlTxPercent) : null;
-    if (svcIntl !== payIntl) return true;
-    return false;
-  }
-
-  function repairPaymentIfNeeded(p, svc) {
-    if (!paymentAppliesToPeriod(p, svc)) return;
-    if (p.status !== 'paid' || paymentNeedsSync(p, svc)) {
-      syncPaymentFromService(p, svc);
-    }
-  }
-
-  function repairAllPaymentsFromServices() {
-    state.data.services.forEach(function (svc) {
-      if (svc.active === false) return;
-      state.data.payments.forEach(function (p) {
-        if (p.serviceId === svc.id) repairPaymentIfNeeded(p, svc);
-      });
-    });
-  }
-
-  function ensureMonthPayments() {
-    pruneInvalidPayments();
-    repairAllPaymentsFromServices();
-    paymentViewPeriods().forEach(function (period) {
-      state.data.services.forEach(function (svc) {
-        if (svc.active === false) return;
-        if (!serviceDueInPeriod(svc, period)) return;
-        var existing = state.data.payments.find(function (p) {
-          return p.serviceId === svc.id && p.period === period;
-        });
-        if (!existing) {
-          state.data.payments.push(paymentFromService(svc, period));
-        }
-      });
-    });
-    return saveData().then(loadData);
-  }
-
-  function paymentStatus(p, svc) {
-    if (p.status === 'paid') return 'paid';
-    var day = Math.min(28, Math.max(1, Number(svc && svc.billingDay) || 1));
-    var parts = String(p.period).split('-');
-    var due = new Date(Number(parts[0]), Number(parts[1]) - 1, day, 12, 0, 0, 0);
-    var now = new Date();
-    now.setHours(12, 0, 0, 0);
-    if (now > due) return 'overdue';
-    return 'pending';
-  }
-
-  // Yurguen: gasto (negativo) = pagado; ingreso (positivo) = cobrado
-  function isExpense(item, svc) {
-    return itemAmount(item) < 0;
-  }
-
-  function paidStatusLabel(item, svc) {
-    return isExpense(item, svc) ? 'Pagado' : 'Cobrado';
-  }
-
-  function payActionLabel(item, svc, done) {
-    if (done) return 'Pendiente';
-    return isExpense(item, svc) ? 'Pagado' : 'Cobrado';
-  }
-
-  function formatPeriodLabel(period) {
-    var parts = String(period).split('-');
-    if (parts.length !== 2) return period;
-    return MONTH_NAMES[Number(parts[1]) - 1] + ' ' + parts[0];
-  }
-
-  function formatBillingDate(svc, period) {
-    var day = Math.min(28, Math.max(1, Number(svc.billingDay) || 1));
-    var parts = String(period).split('-');
-    return String(day).padStart(2, '0') + '/' + String(parts[1]).padStart(2, '0') + '/' + parts[0];
-  }
-
-  function billingDueTime(svc, period) {
-    var day = Math.min(28, Math.max(1, Number(svc.billingDay) || 1));
-    var parts = String(period).split('-');
-    return new Date(Number(parts[0]), Number(parts[1]) - 1, day, 12, 0, 0, 0).getTime();
-  }
-
-  // Yurguen: días hasta el día de cobro del mes (negativo = ya venció)
-  function daysUntilBilling(svc, period) {
-    var now = new Date();
-    now.setHours(12, 0, 0, 0);
-    return Math.round((billingDueTime(svc, period) - now.getTime()) / 86400000);
-  }
-
-  function sortPaymentRows(rows) {
-    return rows.sort(function (a, b) {
-      if (a.p.status === 'paid' && b.p.status !== 'paid') return 1;
-      if (a.p.status !== 'paid' && b.p.status === 'paid') return -1;
-      var da = billingDueTime(a.svc, a.p.period);
-      var db = billingDueTime(b.svc, b.p.period);
-      if (da !== db) return da - db;
-      var na = a.client ? a.client.name : '';
-      var nb = b.client ? b.client.name : '';
-      return na.localeCompare(nb);
-    });
-  }
-
-  function serviceTotalCrc(svc) {
-    var draft = {
-      amount: itemAmount(svc),
-      amountMonthly: svc.amountMonthly,
-      currency: svc.currency || 'CRC',
-      exchangeRate: svc.currency === 'USD' ? resolveRate(svc) : null,
-      intlTxPercent: svc.intlTxPercent,
-      ivaExempt: svc.ivaExempt
-    };
-    return paymentTotalCrc(draft, svc);
-  }
-
-  function sortServicesAsc(services) {
-    return services.slice().sort(function (a, b) {
-      var diff = serviceTotalCrc(a) - serviceTotalCrc(b);
-      if (diff !== 0) return diff;
-      return (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' });
-    });
-  }
-
-  function paymentCrc(p, svc) {
-    return paymentTotalCrc(p, svc);
-  }
-
-  // Yurguen: monto calculado de un servicio que corresponde en el período
-  function crcForDueItem(svc, period) {
-    var p = state.data.payments.find(function (x) {
-      return x.serviceId === svc.id && x.period === period;
-    });
-    if (p) return paymentCrc(p, svc);
-    var draft = {
-      amount: itemAmount(svc),
-      amountMonthly: svc.amountMonthly,
-      currency: svc.currency || 'CRC',
-      exchangeRate: svc.currency === 'USD' ? resolveRate(svc) : null,
-      intlTxPercent: svc.intlTxPercent,
-      ivaExempt: svc.ivaExempt
-    };
-    return paymentTotalCrc(draft, svc);
-  }
-
-  // Yurguen: resumen del mes solo con servicios que tocan cobrar/pagar en el período
-  function computePeriodStats(period) {
-    var stats = {
-      cobradoDone: 0,
-      cobradoPending: 0,
-      pagadoDone: 0,
-      pagadoPending: 0
-    };
-    state.data.services.forEach(function (svc) {
-      if (svc.active === false) return;
-      if (!serviceDueInPeriod(svc, period)) return;
-      var crc = crcForDueItem(svc, period);
-      var p = state.data.payments.find(function (x) {
-        return x.serviceId === svc.id && x.period === period;
-      });
-      var paid = p && p.status === 'paid';
-      if (isExpense(svc, svc)) {
-        if (paid) stats.pagadoDone += crc;
-        else stats.pagadoPending += crc;
-      } else if (paid) stats.cobradoDone += crc;
-      else stats.cobradoPending += crc;
-    });
-    stats.netDone = stats.cobradoDone + stats.pagadoDone;
-    stats.netMonth = stats.cobradoDone + stats.cobradoPending + stats.pagadoDone + stats.pagadoPending;
-    return stats;
-  }
-
-  function setStatMoney(el, amount, showAbs) {
-    if (!el) return;
-    var n = showAbs ? Math.abs(Number(amount) || 0) : Number(amount) || 0;
-    el.textContent = formatMoney(n, 'CRC');
-  }
-
-  function setNetStatCard(el, amount) {
-    if (!el) return;
-    var card = el.closest('.stat-card');
-    var n = Number(amount) || 0;
-    el.textContent = formatMoney(n, 'CRC');
-    if (card) {
-      card.classList.remove('stat-card--negative', 'stat-card--positive');
-      if (n < 0) card.classList.add('stat-card--negative');
-      else if (n > 0) card.classList.add('stat-card--positive');
-    }
-  }
-
-  // ---- DOM ----
   var loginView = document.getElementById('adminLogin');
   var shell = document.getElementById('adminShell');
   var loginForm = document.getElementById('loginForm');
@@ -583,14 +30,31 @@
   var modalSave = document.getElementById('modalSave');
   var modalCancel = document.getElementById('modalCancel');
   var modalDelete = document.getElementById('modalDelete');
-  var modalMode = null;
-  var modalEntityId = null;
 
-  function showApiError(msg) {
-    if (apiError) {
-      apiError.hidden = !msg;
-      apiError.textContent = msg || '';
+  function getToken() {
+    return sessionStorage.getItem(TOKEN_KEY) || '';
+  }
+
+  function setSession(token, user) {
+    if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    else sessionStorage.removeItem(TOKEN_KEY);
+    if (user) {
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      state.user = user;
+    } else {
+      sessionStorage.removeItem(USER_KEY);
+      state.user = null;
     }
+  }
+
+  function loadSessionUser() {
+    try {
+      var raw = sessionStorage.getItem(USER_KEY);
+      state.user = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      state.user = null;
+    }
+    return state.user;
   }
 
   function showLoginError(msg) {
@@ -599,88 +63,295 @@
     loginError.style.display = msg ? 'block' : 'none';
   }
 
-  function doLogin() {
-    var emailEl = document.getElementById('emailInput');
-    var passEl = document.getElementById('passwordInput');
-    var email = emailEl ? emailEl.value.trim() : '';
-    var password = passEl ? passEl.value : '';
-    var btn = document.getElementById('loginBtn');
-
-    if (!email || !password) {
-      showLoginError('Completá correo y contraseña.');
-      return;
-    }
-
-    var btnText = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = 'Entrando...'; }
-    showLoginError('Conectando...');
-
-    fetch(API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'auth', email: email, password: password })
-    })
-      .then(function (r) {
-        return r.text().then(function (text) {
-          var json = null;
-          try { json = text ? JSON.parse(text) : null; } catch (e) { /* ignore */ }
-          return { status: r.status, ok: r.ok, json: json, raw: text };
-        });
-      })
-      .then(function (res) {
-        if (res.json && res.json.ok) {
-          showLoginError('');
-          setAuthed(true, email, password);
-          showShell();
-          return;
-        }
-        var detail = describeApiResult(res.status, res.json, null);
-        if (!res.json && res.raw) {
-          detail += (res.raw.length > 120 ? ' — ' + res.raw.slice(0, 120) + '…' : ' — ' + res.raw);
-        }
-        showLoginError(detail || 'Credenciales rechazadas');
-      })
-      .catch(function (err) {
-        var hint = location.hostname === 'localhost' ? '' : ' (¿Estás en localhost con npm start?)';
-        showLoginError('Sin respuesta — ' + (err.message || String(err)) + hint);
-      })
-      .finally(function () {
-        if (btn) { btn.disabled = false; btn.textContent = btnText; }
-      });
+  function showApiError(msg) {
+    if (!apiError) return;
+    apiError.hidden = !msg;
+    apiError.textContent = msg || '';
   }
 
-  function enterPanel() {
-    showApiError('');
-    return loadData()
-      .then(function () {
-        if (state.data.settings.autoPurge !== false) {
-          var n = purgeOldPayments();
-          if (n > 0) return saveData().then(loadData);
-        }
-      })
-      .then(function () { return ensureMonthPayments(); })
-      .then(function () {
-        loginView.style.display = 'none';
-        shell.classList.add('active');
-        renderAll();
-      });
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
   }
 
-  function showShell() {
-    enterPanel().catch(function (err) {
-      showLoginError(describeApiResult(
-        err && err.status,
-        err && err.json,
-        (err && err.message) || 'No se pudieron cargar los datos después del login'
-      ));
-      console.error(err);
+  function formatMoney(n) {
+    var num = Number(n) || 0;
+    return '₡' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
+  }
+
+  function formatUsd(n) {
+    var num = Number(n) || 0;
+    return 'US$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
+  }
+
+  /** Resumen/gráficos: montos ya en ₡; opcionalmente a $ con el TC del ciclo */
+  function formatChartMoney(crcAmount) {
+    var crc = Number(crcAmount) || 0;
+    if (state.chartCurrency !== 'USD') return formatMoney(crc);
+    var rate = currentFxRate();
+    if (!(rate > 0)) return 'US$—';
+    return formatUsd(crc / rate);
+  }
+
+  function chartUnitLabel() {
+    return state.chartCurrency === 'USD' ? '$' : '₡';
+  }
+
+  function syncCurrencyToggles() {
+    document.querySelectorAll('[data-chart-cur]').forEach(function (btn) {
+      var cur = btn.getAttribute('data-chart-cur');
+      btn.classList.toggle('active', cur === state.chartCurrency);
     });
   }
 
-  function showLogin() {
-    setAuthed(false);
-    loginView.style.display = 'flex';
-    shell.classList.remove('active');
+  function setChartCurrency(cur) {
+    state.chartCurrency = cur === 'USD' ? 'USD' : 'CRC';
+    sessionStorage.setItem(CHART_CUR_KEY, state.chartCurrency);
+    syncCurrencyToggles();
+    if (state.budget) {
+      renderResumenCharts();
+      renderPanelTotals();
+      // Misma moneda en cards/líneas de Presupuesto y Ejecución
+      renderPlan();
+      renderExecution();
+    }
+  }
+
+  /**
+   * Monto de línea en la misma unidad que los totales (₡ o $ del toggle).
+   * Si la línea es USD, muestra también el original para no confundir.
+   */
+  function formatPlanLineDisplay(amount, currency, type) {
+    var rate = currentFxRate();
+    var crc = toCrcLocal(amount, currency, rate);
+    var cur = normalizeCur(currency);
+    var main = '<span class="' + (type === 'income' ? 'amount--income' : 'amount--expense') + '">' +
+      formatChartMoney(crc) + '</span>';
+    if (cur === 'USD') {
+      if (!(rate > 0)) {
+        return '<span class="amount-with-cur">' + currencyBadge('USD') +
+          '<span class="amount--expense">Definí el TC</span></span>';
+      }
+      return '<span class="amount-with-cur">' + currencyBadge('USD') + main +
+        '<span class="plan-line-orig">(' + formatAmount(amount, 'USD') + ')</span></span>';
+    }
+    return '<span class="amount-with-cur">' + currencyBadge('CRC') + main + '</span>';
+  }
+
+  function normalizeCur(currency) {
+    return String(currency || 'CRC').toUpperCase() === 'USD' ? 'USD' : 'CRC';
+  }
+
+  function currencyBadge(currency) {
+    var cur = normalizeCur(currency);
+    if (cur === 'USD') {
+      return '<span class="cur-badge cur-badge--usd" title="Dólares">US$</span>';
+    }
+    return '<span class="cur-badge cur-badge--crc" title="Colones">₡ CRC</span>';
+  }
+
+  function formatAmount(amount, currency) {
+    var num = Number(amount) || 0;
+    var cur = normalizeCur(currency);
+    if (cur === 'USD') {
+      return 'US$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
+    }
+    return formatMoney(num);
+  }
+
+  function formatAmountWithBadge(amount, currency, type) {
+    var cls = type === 'income' ? 'amount--income' : (type === 'expense' ? 'amount--expense' : '');
+    return '<span class="amount-with-cur">' + currencyBadge(currency) +
+      '<span class="' + cls + '">' + formatAmount(amount, currency) + '</span></span>';
+  }
+
+  function typeBadge(type) {
+    if (type === 'income') {
+      return '<span class="type-badge type-badge--income">Ingreso</span>';
+    }
+    return '<span class="type-badge type-badge--expense">Egreso</span>';
+  }
+
+  function rowTypeClass(type) {
+    return type === 'income' ? 'row--income' : 'row--expense';
+  }
+
+  var CAT_COLLAPSE_KEY = 'exha_budget_cat_collapsed';
+
+  function loadCollapsedMap() {
+    try {
+      return JSON.parse(sessionStorage.getItem(CAT_COLLAPSE_KEY) || '{}') || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveCollapsedMap(map) {
+    sessionStorage.setItem(CAT_COLLAPSE_KEY, JSON.stringify(map || {}));
+  }
+
+  function isCatCollapsed(catId) {
+    return !!loadCollapsedMap()[catId];
+  }
+
+  function setCatCollapsed(catId, collapsed) {
+    var map = loadCollapsedMap();
+    if (collapsed) map[catId] = true;
+    else delete map[catId];
+    saveCollapsedMap(map);
+  }
+
+  /** Orden manual (sortOrder); desempate por nombre */
+  function sortedCategories() {
+    return ((state.budget && state.budget.categories) || []).slice().sort(function (a, b) {
+      var ao = Number(a.sortOrder);
+      var bo = Number(b.sortOrder);
+      if (isNaN(ao)) ao = 9999;
+      if (isNaN(bo)) bo = 9999;
+      if (ao !== bo) return ao - bo;
+      return (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' });
+    });
+  }
+
+  /** Opciones: ingresos primero, egresos después; dentro de cada tipo usa sortOrder */
+  function categoryOptionsHtml(selectedId) {
+    var cats = sortedCategories().slice().sort(function (a, b) {
+      if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
+      var ao = Number(a.sortOrder);
+      var bo = Number(b.sortOrder);
+      if (isNaN(ao)) ao = 9999;
+      if (isNaN(bo)) bo = 9999;
+      if (ao !== bo) return ao - bo;
+      return (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' });
+    });
+    var html = '';
+    var lastGroup = null;
+    cats.forEach(function (c) {
+      var group = c.type === 'income' ? '— Ingresos —' : '— Egresos —';
+      if (group !== lastGroup) {
+        html += '<option disabled>' + group + '</option>';
+        lastGroup = group;
+      }
+      var mark = c.type === 'income' ? '↑' : '↓';
+      html += '<option value="' + c.id + '"' + (selectedId === c.id ? ' selected' : '') + '>' +
+        mark + ' ' + escapeHtml(c.name) + '</option>';
+    });
+    return html;
+  }
+
+  function planLinesForCategory(categoryId) {
+    var lines = ((state.budget && state.budget.period && state.budget.period.budget) || [])
+      .filter(function (l) { return l.categoryId === categoryId; })
+      .slice()
+      .sort(function (a, b) {
+        var ao = Number(a.sortOrder);
+        var bo = Number(b.sortOrder);
+        if (isNaN(ao)) ao = 9999;
+        if (isNaN(bo)) bo = 9999;
+        if (ao !== bo) return ao - bo;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    return lines;
+  }
+
+  function movePlanLine(lineId, direction) {
+    if (periodLocked()) {
+      alert(lockMessage());
+      return;
+    }
+    api('budget.plan.move', {
+      id: lineId,
+      direction: direction,
+      cycleKey: currentCycleKey()
+    })
+      .then(function () { return loadBudget(); })
+      .catch(function (err) { alert(err.message); });
+  }
+
+  function categoryStatsCrc(categoryId) {
+    var rate = currentFxRate();
+    var planned = 0;
+    var actual = 0;
+    planLinesForCategory(categoryId).forEach(function (line) {
+      planned += toCrcLocal(line.planned, line.currency, rate);
+    });
+    ((state.budget && state.budget.period && state.budget.period.executions) || []).forEach(function (ex) {
+      if (ex.categoryId !== categoryId) return;
+      actual += toCrcLocal(ex.amount, ex.currency, rate);
+    });
+    return { planned: planned, actual: actual, remaining: planned - actual };
+  }
+
+  function toCrcLocal(amount, currency, rate) {
+    var n = Number(amount) || 0;
+    if (String(currency || 'CRC').toUpperCase() === 'USD') {
+      return n * (Number(rate) || 0);
+    }
+    return n;
+  }
+
+  function periodIsClosed() {
+    return !!(state.budget && (state.budget.periodClosed || (state.budget.period && state.budget.period.status === 'closed')));
+  }
+
+  function periodIsExpired() {
+    if (periodIsClosed()) return false;
+    if (state.budget && state.budget.periodExpired) return true;
+    var p = state.budget && state.budget.period;
+    if (!p || !p.endDate) return false;
+    var today = new Date();
+    var iso = today.getFullYear() + '-' +
+      String(today.getMonth() + 1).padStart(2, '0') + '-' +
+      String(today.getDate()).padStart(2, '0');
+    return String(p.endDate) < iso;
+  }
+
+  /** Cerrado o vencido: no se edita; sí se puede cerrar si está vencido */
+  function periodLocked() {
+    return periodIsClosed() || periodIsExpired();
+  }
+
+  function lockMessage() {
+    if (periodIsClosed()) return 'Ciclo cerrado: no se puede modificar.';
+    if (periodIsExpired()) {
+      return 'El ciclo ya venció. Debés cerrarlo en Ejecución para continuar (o extendé la fecha de fin en Mi cuenta cambiando el día de inicio).';
+    }
+    return '';
+  }
+
+  function currentFxRate() {
+    if (!state.budget || !state.budget.period) return 0;
+    return Number(state.budget.period.exchangeRate) || 0;
+  }
+
+  function formatCycleLabel(c) {
+    if (!c) return '';
+    var base = c.startDate.split('-').reverse().join('/') + ' → ' + c.endDate.split('-').reverse().join('/');
+    if (c.status === 'closed') return base + ' (cerrado)';
+    return base;
+  }
+
+  function api(action, body) {
+    var payload = Object.assign({ action: action }, body || {});
+    var headers = { 'Content-Type': 'application/json' };
+    var token = getToken();
+    if (token) headers['X-Session-Token'] = token;
+    return fetch(API, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      return res.json().then(function (json) {
+        if (!res.ok) {
+          var err = new Error((json && json.error) || ('HTTP ' + res.status));
+          err.status = res.status;
+          err.json = json;
+          throw err;
+        }
+        return json;
+      });
+    });
   }
 
   function switchPanel(name) {
@@ -692,528 +363,1129 @@
     });
   }
 
-  function renderExchangeSettings() {
-    var rateInp = document.getElementById('defaultExchangeRate');
-    var ivaInp = document.getElementById('ivaPercent');
-    if (rateInp) rateInp.value = defaultRate();
-    if (ivaInp) ivaInp.value = ivaPercent();
+  function showLogin() {
+    setSession('', null);
+    state.budget = null;
+    if (loginView) loginView.style.display = 'flex';
+    if (shell) shell.classList.remove('active');
   }
 
-  function renderRetentionSettings() {
-    var sel = document.getElementById('retentionMonths');
-    var auto = document.getElementById('autoPurge');
-    var hint = document.getElementById('retentionHint');
-    if (sel) sel.value = String(retentionMonths() || 0);
-    if (auto) auto.checked = state.data.settings.autoPurge !== false;
-    if (hint) {
-      var cut = cutoffPeriod();
-      if (!retentionMonths()) {
-        hint.textContent = 'Sin límite: la bitácora no se borra sola.';
-      } else {
-        hint.textContent = 'Limpieza automática: se borran cobros con más de 12 meses.';
-      }
+  function showShell() {
+    if (!state.user) loadSessionUser();
+    if (loginView) loginView.style.display = 'none';
+    if (shell) shell.classList.add('active');
+    var label = document.getElementById('userLabel');
+    if (label && state.user) {
+      label.textContent = state.user.displayName || state.user.username;
     }
+    var navUsers = document.getElementById('navUsuarios');
+    if (navUsers) navUsers.hidden = !(state.user && state.user.role === 'admin');
+    var dayInput = document.getElementById('myBillingDay');
+    if (dayInput && state.user) {
+      dayInput.value = state.user.billingDayStart || 1;
+    }
+    showApiError('');
+    loadBudget();
+    if (state.user && state.user.role === 'admin') loadUsers();
   }
 
-  function renderBitacora() {
-    var tbody = document.getElementById('bitacoraBody');
-    var countEl = document.getElementById('bitacoraCount');
-    if (!tbody) return;
-    var rows = state.data.payments
-      .filter(function (p) { return p.status === 'paid'; })
-      .map(function (p) {
-        var svc = serviceById(p.serviceId);
-        if (!svc) return null;
-        return { p: p, svc: svc, client: clientById(svc.clientId) };
+  function doLogin() {
+    var userEl = document.getElementById('usernameInput');
+    var passEl = document.getElementById('passwordInput');
+    var username = userEl ? userEl.value.trim() : '';
+    var password = passEl ? passEl.value : '';
+    var btn = document.getElementById('loginBtn');
+    if (!username || !password) {
+      showLoginError('Completá usuario y contraseña.');
+      return;
+    }
+    var btnText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Entrando...'; }
+    showLoginError('Conectando...');
+    api('auth', { username: username, password: password })
+      .then(function (res) {
+        if (!res.ok) {
+          showLoginError(res.error || 'Credenciales inválidas');
+          return;
+        }
+        setSession(res.token, res.user);
+        showLoginError('');
+        showShell();
       })
-      .filter(Boolean)
-      .sort(function (a, b) {
-        var da = a.p.paidAt || a.p.period;
-        var db = b.p.paidAt || b.p.period;
-        return db.localeCompare(da);
-      });
-
-    if (countEl) countEl.textContent = rows.length + ' registro(s) en bitácora.';
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Aún no hay pagos marcados como pagados.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = rows.map(function (row) {
-      var fecha = row.p.paidAt ? formatDateCr(row.p.paidAt) : '—';
-      return '<tr>' +
-        '<td>' + escapeHtml(fecha) + '</td>' +
-        '<td>' + escapeHtml(row.p.period) + '</td>' +
-        '<td>' + escapeHtml(row.client ? row.client.name : '—') + '</td>' +
-        '<td>' + escapeHtml(row.svc.name) + '</td>' +
-        '<td class="desc-cell">' + escapeHtml(paymentDescription(row.p) || '—') + '</td>' +
-        '<td>' + formatTotalDisplay(row.p, row.svc) + '</td></tr>';
-    }).join('');
-  }
-
-  function formatDateCr(iso) {
-    var parts = String(iso).slice(0, 10).split('-');
-    if (parts.length !== 3) return iso;
-    return parts[2] + '/' + parts[1] + '/' + parts[0];
-  }
-
-  function renderStats() {
-    var period = periodNow();
-    var stats = computePeriodStats(period);
-    setStatMoney(document.getElementById('statCobradoDone'), stats.cobradoDone, false);
-    setStatMoney(document.getElementById('statCobradoPending'), stats.cobradoPending, false);
-    setStatMoney(document.getElementById('statPagadoDone'), stats.pagadoDone, true);
-    setStatMoney(document.getElementById('statPagadoPending'), stats.pagadoPending, true);
-    setNetStatCard(document.getElementById('statNetDone'), stats.netDone);
-    setNetStatCard(document.getElementById('statNetMonth'), stats.netMonth);
-    var elClients = document.getElementById('statClients');
-    var periodLabel = document.getElementById('periodLabel');
-    if (elClients) elClients.textContent = String(state.data.clients.filter(function (c) { return c.active !== false; }).length);
-    if (periodLabel) periodLabel.textContent = formatPeriodLabel(period);
-    renderExchangeSettings();
-    renderRetentionSettings();
-  }
-
-  function renderPaymentsTabs() {
-    var wrap = document.getElementById('paymentsTabs');
-    if (!wrap) return;
-    var cur = periodNow();
-    var tabs = [
-      { key: 'prev', period: shiftPeriod(cur, -1), label: 'Mes anterior' },
-      { key: 'current', period: cur, label: 'Mes actual' },
-      { key: 'next', period: shiftPeriod(cur, 1), label: 'Mes posterior' }
-    ];
-    wrap.innerHTML = tabs.map(function (t) {
-      var active = state.paymentTab === t.key ? ' active' : '';
-      return '<button type="button" class="payments-tab' + active + '" data-pay-tab="' + t.key + '">' +
-        '<span>' + t.label + '</span><small>' + formatPeriodLabel(t.period) + '</small></button>';
-    }).join('');
-    wrap.querySelectorAll('[data-pay-tab]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        state.paymentTab = btn.getAttribute('data-pay-tab');
-        renderPaymentsTable();
-      });
-    });
-  }
-
-  function renderPaymentsTable() {
-    var tbody = document.getElementById('paymentsBody');
-    var tfoot = document.getElementById('paymentsFoot');
-    if (!tbody) return;
-    renderPaymentsTabs();
-    var period = periodForPaymentTab(state.paymentTab);
-    var rows = state.data.payments
-      .filter(function (p) { return p.period === period; })
-      .map(function (p) {
-        var svc = serviceById(p.serviceId);
-        if (!svc || !paymentAppliesToPeriod(p, svc)) return null;
-        return { p: p, svc: svc, client: clientById(svc.clientId), st: paymentStatus(p, svc) };
+      .catch(function (err) {
+        showLoginError(err.message || 'No se pudo conectar');
       })
-      .filter(Boolean);
-    sortPaymentRows(rows);
-
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No hay cobros en ' + escapeHtml(formatPeriodLabel(period)) + '.</td></tr>';
-      if (tfoot) tfoot.innerHTML = '';
-      return;
-    }
-
-    var sumTotal = 0;
-    var sumIncome = 0;
-    var sumExpense = 0;
-
-    tbody.innerHTML = rows.map(function (row) {
-      var crc = paymentCrc(row.p, row.svc);
-      sumTotal += crc;
-      if (isExpense(row.p, row.svc)) sumExpense += crc;
-      else sumIncome += crc;
-
-      var badgeClass = row.st === 'paid' ? 'badge-paid' : (row.st === 'overdue' ? 'badge-overdue' : 'badge-pending');
-      var badgeText = row.st === 'paid' ? paidStatusLabel(row.p, row.svc) : (row.st === 'overdue' ? 'Vencido' : 'Pendiente');
-      var per = PERIOD_LABELS[row.svc.periodicity || 'monthly'] || 'Mensual';
-      var desc = paymentDescription(row.p);
-      var done = row.p.status === 'paid';
-      var payBtn = done
-        ? '<button type="button" class="btn btn-outline btn-sm" data-unpay="' + row.p.id + '">' + payActionLabel(row.p, row.svc, true) + '</button>'
-        : '<button type="button" class="btn btn-primary btn-sm" data-pay="' + row.p.id + '">' + payActionLabel(row.p, row.svc, false) + '</button>';
-      return '<tr>' +
-        '<td><strong>' + escapeHtml(row.client ? row.client.name : '—') + '</strong></td>' +
-        '<td>' + escapeHtml(row.svc.name) + '</td>' +
-        '<td class="desc-cell">' + escapeHtml(desc || '—') +
-        ' <button type="button" class="btn btn-outline btn-sm" data-edit-pay="' + row.p.id + '">Editar</button></td>' +
-        '<td>' + per + '</td>' +
-        '<td>' + formatBillingDate(row.svc, row.p.period) + '</td>' +
-        '<td>' + formatTotalDisplay(row.p, row.svc) + '</td>' +
-        '<td><span class="badge-status ' + badgeClass + '">' + badgeText + '</span></td>' +
-        '<td>' + payBtn + '</td></tr>';
-    }).join('');
-
-    if (tfoot) {
-      tfoot.innerHTML = '<tr class="payments-total-row">' +
-        '<td colspan="5"><strong>Sumatoria — ' + escapeHtml(formatPeriodLabel(period)) + '</strong></td>' +
-        '<td><strong>' + formatMoney(sumTotal, 'CRC') + '</strong>' +
-        '<br><small>Ingresos: ' + formatMoney(sumIncome, 'CRC') + ' · Gastos: ' + formatMoney(sumExpense, 'CRC') + '</small></td>' +
-        '<td colspan="2"></td></tr>';
-    }
-
-    tbody.querySelectorAll('[data-pay]').forEach(function (btn) {
-      btn.addEventListener('click', function () { markPaid(btn.getAttribute('data-pay'), true); });
-    });
-    tbody.querySelectorAll('[data-unpay]').forEach(function (btn) {
-      btn.addEventListener('click', function () { markPaid(btn.getAttribute('data-unpay'), false); });
-    });
-    tbody.querySelectorAll('[data-edit-pay]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var p = state.data.payments.find(function (x) { return x.id === btn.getAttribute('data-edit-pay'); });
-        if (p) openPaymentModal(p);
+      .finally(function () {
+        if (btn) { btn.disabled = false; btn.textContent = btnText; }
       });
-    });
   }
 
-  function paymentDescription(p) {
-    return (p.description || p.notes || '').trim();
+  function currentCycleKey() {
+    var sel = document.getElementById('cycleSelect');
+    if (sel && sel.value) return sel.value;
+    if (state.budget && state.budget.cycle) return state.budget.cycle.key;
+    return null;
   }
 
-  function markPaid(id, paid) {
-    var p = state.data.payments.find(function (x) { return x.id === id; });
-    if (!p) return;
-    p.status = paid ? 'paid' : 'pending';
-    p.paidAt = paid ? new Date().toISOString().slice(0, 10) : null;
-    persist();
-  }
-
-  function renderClientList() {
-    var list = document.getElementById('clientList');
-    if (!list) return;
-    var clients = state.data.clients.slice().sort(function (a, b) {
-      return (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' });
-    });
-    if (!clients.length) {
-      list.innerHTML = '<p class="empty-state">Sin clientes.</p>';
-      return;
-    }
-    list.innerHTML = clients.map(function (c) {
-      var sel = state.selectedClientId === c.id ? ' selected' : '';
-      var n = state.data.services.filter(function (s) { return s.clientId === c.id; }).length;
-      return '<div class="client-item' + sel + '" data-client="' + c.id + '">' +
-        '<div><strong>' + escapeHtml(c.name) + '</strong>' +
-        '<small>' + n + ' servicio' + (n === 1 ? '' : 's') + (c.active === false ? ' · inactivo' : '') + '</small></div><span>→</span></div>';
-    }).join('');
-    list.querySelectorAll('[data-client]').forEach(function (el) {
-      el.addEventListener('click', function () {
-        state.selectedClientId = el.getAttribute('data-client');
-        renderClientList();
-        renderClientDetail();
+  function loadBudget(cycleKey) {
+    return api('budget.get', { cycleKey: cycleKey || currentCycleKey() })
+      .then(function (res) {
+        state.budget = res;
+        renderAll();
+      })
+      .catch(function (err) {
+        showApiError(err.message || 'Error al cargar presupuesto');
       });
-    });
   }
 
-  function renderClientDetail() {
-    var box = document.getElementById('clientDetail');
-    if (!box) return;
-    if (!state.selectedClientId) {
-      box.innerHTML = '<p class="empty-state">Seleccioná un cliente.</p>';
-      return;
-    }
-    var c = clientById(state.selectedClientId);
-    if (!c) {
-      box.innerHTML = '<p class="empty-state">No encontrado.</p>';
-      return;
-    }
-    var services = sortServicesAsc(state.data.services.filter(function (s) { return s.clientId === c.id; }));
-    var svcHtml = services.length
-      ? '<table class="admin-table"><thead><tr><th>Servicio</th><th>Periodicidad</th><th>Cobro/mes</th><th>Día</th><th></th></tr></thead><tbody>' +
-        services.map(function (s) {
-          return '<tr><td>' + escapeHtml(s.name) + '</td>' +
-            '<td>' + (PERIOD_LABELS[s.periodicity || 'monthly'] || 'Mensual') + '</td>' +
-            '<td>' + formatTotalDisplay(s) + '</td>' +
-            '<td>' + formatBillingSchedule(s) + '</td>' +
-            '<td><button type="button" class="btn btn-outline btn-sm" data-edit-svc="' + s.id + '">Editar</button></td></tr>';
-        }).join('') + '</tbody></table>'
-      : '<p class="empty-state">Sin servicios.</p>';
-
-    box.innerHTML =
-      '<h2>' + escapeHtml(c.name) + '</h2>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">' +
-      '<button type="button" class="btn btn-primary btn-sm" id="btnEditClient">Editar</button>' +
-      '<button type="button" class="btn btn-outline btn-sm" id="btnAddService">+ Servicio</button>' +
-      '<button type="button" class="btn btn-danger btn-sm" id="btnDeleteClient">Eliminar</button></div>' +
-      '<h3>Servicios</h3>' + svcHtml;
-
-    document.getElementById('btnEditClient').onclick = function () { openClientModal(c); };
-    document.getElementById('btnAddService').onclick = function () { openServiceModal(c.id); };
-    document.getElementById('btnDeleteClient').onclick = function () {
-      if (!confirm('¿Eliminar cliente y todo lo relacionado?')) return;
-      var svcIds = state.data.services.filter(function (s) { return s.clientId === c.id; }).map(function (s) { return s.id; });
-      state.data.clients = state.data.clients.filter(function (x) { return x.id !== c.id; });
-      state.data.services = state.data.services.filter(function (s) { return s.clientId !== c.id; });
-      state.data.payments = state.data.payments.filter(function (p) { return svcIds.indexOf(p.serviceId) === -1; });
-      state.selectedClientId = null;
-      persist();
-    };
-    box.querySelectorAll('[data-edit-svc]').forEach(function (btn) {
-      btn.onclick = function () {
-        var s = serviceById(btn.getAttribute('data-edit-svc'));
-        if (s) openServiceModal(s.clientId, s);
-      };
-    });
+  function catName(id) {
+    if (!id || !state.budget) return '—';
+    var c = (state.budget.categories || []).find(function (x) { return x.id === id; });
+    return c ? c.name : '—';
   }
 
-  function escapeHtml(s) {
-    var d = document.createElement('div');
-    d.textContent = s == null ? '' : String(s);
-    return d.innerHTML;
+  function catById(id) {
+    if (!id || !state.budget) return null;
+    return (state.budget.categories || []).find(function (x) { return x.id === id; }) || null;
+  }
+
+
+  /* Yurguen: tonos rojizos — el pastel es solo egresos */
+  var PIE_COLORS = [
+    '#b42318', '#d9480f', '#c92a2a', '#e8590c', '#a61e4d',
+    '#fa5252', '#f08c00', '#862e9c', '#c2255c', '#e67700'
+  ];
+
+  var VBAR_MAX_PX = 160;
+
+  function renderVerticalBars(el, rows, kind) {
+    if (!el) return;
+    if (!rows || !rows.length) {
+      el.innerHTML = '<p class="empty-state" style="margin:0">Sin datos aún.</p>';
+      return;
+    }
+    // Altura en px (height % falla dentro de flex en varios navegadores)
+    var max = Math.max.apply(null, rows.map(function (r) { return Number(r.value) || 0; }).concat([0]));
+    if (!(max > 0)) max = 1;
+    var kindCls = kind === 'income' ? ' vbar-fill--income' : ' vbar-fill--expense';
+    el.innerHTML = rows.map(function (r) {
+      var v = Number(r.value) || 0;
+      var px = Math.max(v > 0 ? 4 : 0, Math.round((v / max) * VBAR_MAX_PX));
+      var seriesCls = r.series === 'planned' ? ' vbar-fill--planned' : '';
+      return '<div class="vbar-col">' +
+        '<span class="vbar-value">' + formatChartMoney(v) + '</span>' +
+        '<div class="vbar-track" style="height:' + VBAR_MAX_PX + 'px">' +
+        '<div class="vbar-fill' + kindCls + seriesCls + '" style="height:' + px + 'px"></div></div>' +
+        '<span class="vbar-label">' + escapeHtml(r.shortLabel || r.label) + '</span></div>';
+    }).join('');
+  }
+
+  function renderPieChart(el, rows) {
+    if (!el) return;
+    if (!rows || !rows.length) {
+      el.innerHTML = '<p class="empty-state" style="margin:0">Sin gastos por categoría aún.</p>';
+      return;
+    }
+    var total = rows.reduce(function (s, r) { return s + (Number(r.value) || 0); }, 0);
+    if (!(total > 0)) {
+      el.innerHTML = '<p class="empty-state" style="margin:0">Sin gastos por categoría aún.</p>';
+      return;
+    }
+    var acc = 0;
+    var stops = [];
+    rows.forEach(function (r, i) {
+      var v = Number(r.value) || 0;
+      var start = acc;
+      acc += (v / total) * 360;
+      stops.push(PIE_COLORS[i % PIE_COLORS.length] + ' ' + start.toFixed(2) + 'deg ' + acc.toFixed(2) + 'deg');
+    });
+    var legend = rows.map(function (r, i) {
+      var v = Number(r.value) || 0;
+      var pct = Math.round((v / total) * 100);
+      return '<li>' +
+        '<span class="pie-swatch" style="background:' + PIE_COLORS[i % PIE_COLORS.length] + '"></span>' +
+        '<span>' + escapeHtml(r.label) + ' (' + pct + '%)</span>' +
+        '<span class="pie-amt">' + formatChartMoney(v) + '</span></li>';
+    }).join('');
+    el.innerHTML =
+      '<div class="pie-disc" style="background:conic-gradient(' + stops.join(', ') + ')" role="img" aria-label="Gastos por categoría"></div>' +
+      '<ul class="pie-legend">' + legend + '</ul>';
+  }
+
+  function setBalanceCard(elId, valueCrc, labelId, positiveLabel, negativeLabel) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    el.textContent = formatChartMoney(valueCrc);
+    var card = el.closest('.stat-card');
+    if (!card) return;
+    card.classList.remove('stat-card--negative', 'stat-card--positive');
+    if (valueCrc < 0) card.classList.add('stat-card--negative');
+    else if (valueCrc > 0) card.classList.add('stat-card--positive');
+    var lbl = labelId ? document.getElementById(labelId) : null;
+    if (lbl && positiveLabel && negativeLabel) {
+      lbl.textContent = valueCrc < 0 ? negativeLabel : positiveLabel;
+    }
+  }
+
+  /** Totales arriba en Presupuesto / Ejecución (misma moneda que gráficos) */
+  function renderPanelTotals() {
+    var b = state.budget;
+    if (!b) return;
+    var s = b.summary || {};
+    var planInc = Number(s.plannedIncome) || 0;
+    var planExp = Number(s.plannedExpense) || 0;
+    var planBal = Number(s.plannedBalance) || 0;
+    var actInc = Number(s.actualIncome) || 0;
+    var actExp = Number(s.actualExpense) || 0;
+    var actBal = Number(s.actualBalance) || 0;
+
+    var elPlanIn = document.getElementById('planStatIncome');
+    var elPlanEx = document.getElementById('planStatExpense');
+    if (elPlanIn) elPlanIn.textContent = formatChartMoney(planInc);
+    if (elPlanEx) elPlanEx.textContent = formatChartMoney(planExp);
+    setBalanceCard('planStatBalance', planBal, 'planStatBalanceLbl', 'Margen', 'Sobregiro');
+
+    var elExeIn = document.getElementById('exeStatIncome');
+    var elExeEx = document.getElementById('exeStatExpense');
+    if (elExeIn) elExeIn.textContent = formatChartMoney(actInc);
+    if (elExeEx) elExeEx.textContent = formatChartMoney(actExp);
+    // Balance: verde si positivo, rojo si negativo; etiqueta fija
+    setBalanceCard('exeStatBalance', actBal);
+
+    syncCurrencyToggles();
+  }
+
+  function renderResumenCharts() {
+    var b = state.budget;
+    if (!b) return;
+    var s = b.summary || {};
+    var unit = chartUnitLabel();
+    var elPlanIn = document.getElementById('statPlanIncome');
+    var elPlanEx = document.getElementById('statPlanExpense');
+    var elActIn = document.getElementById('statActIncome');
+    var elActEx = document.getElementById('statActExpense');
+    if (elPlanIn) elPlanIn.textContent = formatChartMoney(s.plannedIncome);
+    if (elPlanEx) elPlanEx.textContent = formatChartMoney(s.plannedExpense);
+    if (elActIn) elActIn.textContent = formatChartMoney(s.actualIncome);
+    if (elActEx) elActEx.textContent = formatChartMoney(s.actualExpense);
+    setBalanceCard('statActBal', s.actualBalance || 0);
+
+    var subIn = document.getElementById('chartIncomeSub');
+    var subEx = document.getElementById('chartExpenseSub');
+    var subPie = document.getElementById('chartPieSub');
+    if (subIn) subIn.textContent = 'Presupuestado vs ejecutado (' + unit + ')';
+    if (subEx) subEx.textContent = 'Presupuestado vs ejecutado (' + unit + ')';
+    if (subPie) subPie.textContent = 'Distribución de egresos ejecutados (' + unit + ')';
+
+    renderVerticalBars(document.getElementById('chartIncome'), [
+      { value: s.plannedIncome || 0, series: 'planned', shortLabel: 'Presupuestado' },
+      { value: s.actualIncome || 0, series: 'actual', shortLabel: 'Ejecutado' }
+    ], 'income');
+    renderVerticalBars(document.getElementById('chartExpense'), [
+      { value: s.plannedExpense || 0, series: 'planned', shortLabel: 'Presupuestado' },
+      { value: s.actualExpense || 0, series: 'actual', shortLabel: 'Ejecutado' }
+    ], 'expense');
+    var pieRows = ((b.charts && b.charts.byCategory) || []).filter(function (r) {
+      return Number(r.value) > 0;
+    });
+    renderPieChart(document.getElementById('chartByCategory'), pieRows);
+
+    syncCurrencyToggles();
+  }
+
+  function updateCycleChrome() {
+    var closed = periodIsClosed();
+    var expired = periodIsExpired();
+    var locked = closed || expired;
+    var bannerClosed = document.getElementById('cycleClosedBanner');
+    var bannerExpired = document.getElementById('cycleExpiredBanner');
+    if (bannerClosed) bannerClosed.hidden = !closed;
+    if (bannerExpired) bannerExpired.hidden = !expired;
+
+    var fxBar = document.getElementById('fxBar');
+    var fxInput = document.getElementById('fxRateInput');
+    var fxHint = document.getElementById('fxHint');
+    var btnFx = document.getElementById('btnSaveFx');
+    var btnClose = document.getElementById('btnCloseCycle');
+    var rate = currentFxRate();
+
+    if (fxInput) fxInput.value = rate > 0 ? rate : '';
+    if (fxBar) fxBar.classList.toggle('is-locked', locked);
+    if (btnFx) btnFx.disabled = locked;
+    if (fxInput) fxInput.disabled = locked;
+    // Cerrar ciclo: desde el último día (endDate <= hoy)
+    if (btnClose) {
+      var canClose = canCloseCurrentCycle();
+      btnClose.hidden = !canClose;
+      btnClose.disabled = !canClose;
+    }
+    if (fxHint) {
+      fxHint.textContent = rate > 0
+        ? ('1 $ = ₡' + rate.toLocaleString('es-CR'))
+        : '1 $ = ₡—';
+    }
+
+    var btnNewExe = document.getElementById('btnNewExe');
+    if (btnNewExe) btnNewExe.disabled = locked;
   }
 
   function renderAll() {
-    renderStats();
-    renderPaymentsTable();
-    renderBitacora();
-    renderClientList();
-    renderClientDetail();
+    var b = state.budget;
+    if (!b) return;
+
+    var sel = document.getElementById('cycleSelect');
+    if (sel) {
+      sel.innerHTML = (b.cycles || []).map(function (c) {
+        var selected = b.cycle && c.key === b.cycle.key ? ' selected' : '';
+        return '<option value="' + c.key + '"' + selected + '>' + formatCycleLabel(c) + '</option>';
+      }).join('');
+    }
+
+    var range = document.getElementById('cycleRangeLabel');
+    if (range && b.cycle) {
+      var st = periodIsClosed() ? 'cerrado' : (periodIsExpired() ? 'vencido' : 'abierto');
+      var dates = (b.cycle.startDate || '').split('-').reverse().join('/') +
+        ' → ' + (b.cycle.endDate || '').split('-').reverse().join('/');
+      range.textContent = 'Periodo: ' + dates + ' · ' + st;
+    }
+
+    updateCycleChrome();
+    renderResumenCharts();
+    renderPanelTotals();
+
+    renderLoans();
+    renderPlan();
+    renderExecution();
+    renderHistory();
   }
 
-  function openModal(title, html, mode, id) {
-    modalMode = mode;
-    modalEntityId = id;
+
+  function loanFxRate() {
+    return Number(state.budget && state.budget.loanFxRate) || currentFxRate() || 0;
+  }
+
+  function loanBalanceCrc(loan) {
+    var rate = loanFxRate();
+    var total = 0;
+    (loan.movements || []).forEach(function (m) {
+      var sign = Number(m.sign) === -1 ? -1 : 1;
+      total += sign * toCrcLocal(m.amount, m.currency, rate);
+    });
+    return total;
+  }
+
+  function loanSideLabel(side) {
+    return side === 'borrowed' ? 'Me prestaron' : 'Yo presté';
+  }
+
+  function renderLoans() {
+    var root = document.getElementById('loansList');
+    if (!root || !state.budget) return;
+    var loans = (state.budget.loans || []).slice().sort(function (a, b) {
+      return (a.person || '').localeCompare(b.person || '', 'es', { sensitivity: 'base' });
+    });
+    if (!loans.length) {
+      root.innerHTML = '<p class="empty-state">Sin préstamos. Agregá una persona para llevar el histórico.</p>';
+      return;
+    }
+    root.innerHTML = loans.map(function (loan) {
+      var bal = loanBalanceCrc(loan);
+      var sideClass = loan.side === 'borrowed' ? 'loan-side-badge--borrowed' : 'loan-side-badge--lent';
+      var balClass = bal === 0 ? ' is-zero' : '';
+      var balHint = loan.side === 'borrowed'
+        ? (bal > 0 ? 'Debés' : bal < 0 ? 'A tu favor' : 'Saldado')
+        : (bal > 0 ? 'Te deben' : bal < 0 ? 'A favor de ellos' : 'Saldado');
+      var movs = (loan.movements || []).slice().sort(function (a, b) {
+        return String(b.date || '').localeCompare(String(a.date || ''));
+      });
+      var movRows = movs.length
+        ? movs.map(function (m) {
+            var signCls = Number(m.sign) === -1 ? 'loan-sign--minus' : 'loan-sign--plus';
+            var signTxt = Number(m.sign) === -1 ? '−' : '+';
+            return '<tr>' +
+              '<td>' + escapeHtml(m.date || '') + '</td>' +
+              '<td class="' + signCls + '">' + signTxt + '</td>' +
+              '<td>' + formatAmountWithBadge(m.amount, m.currency, Number(m.sign) === -1 ? 'expense' : 'income') + '</td>' +
+              '<td>' + escapeHtml(m.note || '—') + '</td>' +
+              '<td><button type="button" class="btn btn-outline btn-sm" data-edit-loan-mov="' + loan.id + '" data-mov-id="' + m.id + '">Editar</button></td>' +
+              '</tr>';
+          }).join('')
+        : '<tr><td colspan="5" class="empty-state">Sin movimientos aún.</td></tr>';
+      return '<article class="loan-card" data-loan-id="' + loan.id + '">' +
+        '<div class="loan-card__head">' +
+        '<div><h3>' + escapeHtml(loan.person) +
+        '<span class="loan-side-badge ' + sideClass + '">' + loanSideLabel(loan.side) + '</span></h3>' +
+        (loan.notes ? '<p class="loan-card__meta">' + escapeHtml(loan.notes) + '</p>' : '') +
+        '</div>' +
+        '<div class="loan-card__actions">' +
+        '<button type="button" class="btn btn-primary btn-sm" data-loan-mov="' + loan.id + '">+/− Monto</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-edit-loan="' + loan.id + '">Editar</button>' +
+        '</div></div>' +
+        '<p class="loan-balance' + balClass + '">' + formatMoney(bal) +
+        ' <small style="font-weight:500;color:#7a8889">· ' + balHint + '</small></p>' +
+        '<div class="admin-table-wrap"><table class="loan-mov-table">' +
+        '<thead><tr><th>Fecha</th><th></th><th>Monto</th><th>Nota</th><th></th></tr></thead>' +
+        '<tbody>' + movRows + '</tbody></table></div></article>';
+    }).join('');
+
+    root.querySelectorAll('[data-edit-loan]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var loan = (state.budget.loans || []).find(function (x) {
+          return x.id === btn.getAttribute('data-edit-loan');
+        });
+        if (loan) openLoanModal(loan);
+      });
+    });
+    root.querySelectorAll('[data-loan-mov]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openLoanMovModal(btn.getAttribute('data-loan-mov'), null);
+      });
+    });
+    root.querySelectorAll('[data-edit-loan-mov]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openLoanMovModal(btn.getAttribute('data-edit-loan-mov'), btn.getAttribute('data-mov-id'));
+      });
+    });
+  }
+
+  function moveCategory(catId, direction) {
+    api('budget.category.move', { id: catId, direction: direction })
+      .then(function (res) {
+        if (res.categories && state.budget) state.budget.categories = res.categories;
+        return loadBudget();
+      })
+      .catch(function (err) { alert(err.message); });
+  }
+
+  function renderPlan() {
+    var root = document.getElementById('planBody');
+    if (!root || !state.budget) return;
+    var locked = periodLocked();
+    var cats = sortedCategories();
+    if (!cats.length) {
+      root.innerHTML = '<p class="empty-state">Sin categorías. Creá una y después agregale uno o más presupuestos.</p>';
+      return;
+    }
+    root.innerHTML = cats.map(function (c, idx) {
+      var desc = (c.description || '').trim();
+      var lines = planLinesForCategory(c.id);
+      var plannedTotal = 0;
+      lines.forEach(function (line) {
+        plannedTotal += toCrcLocal(line.planned, line.currency, currentFxRate());
+      });
+      var collapsed = isCatCollapsed(c.id);
+      var linesHtml = lines.length
+        ? '<table class="cat-plan-lines"><thead><tr><th>Etiqueta</th><th>Monto</th><th></th></tr></thead><tbody>' +
+          lines.map(function (line, lineIdx) {
+            var lbl = String(line.tag || line.label || line.planLabel || '').trim();
+            var actions = locked
+              ? '<span style="color:#7a8889;font-size:0.85rem">—</span>'
+              : '<span class="cat-plan-line-actions">' +
+                '<button type="button" class="btn btn-outline btn-sm" data-move-plan="' + line.id +
+                '" data-dir="up" title="Subir"' + (lineIdx > 0 ? '' : ' disabled') + '>↑</button>' +
+                '<button type="button" class="btn btn-outline btn-sm" data-move-plan="' + line.id +
+                '" data-dir="down" title="Bajar"' + (lineIdx < lines.length - 1 ? '' : ' disabled') + '>↓</button>' +
+                '<button type="button" class="btn btn-outline btn-sm" data-edit-plan="' + line.id + '">Editar</button>' +
+                '</span>';
+            return '<tr>' +
+              '<td>' + (lbl ? '<strong>' + escapeHtml(lbl) + '</strong>' : '<span style="color:#7a8889">—</span>') + '</td>' +
+              '<td>' + formatPlanLineDisplay(line.planned, line.currency, c.type) + '</td>' +
+              '<td>' + actions + '</td></tr>';
+          }).join('') +
+          '</tbody></table>'
+        : '<p class="cat-plan-card__meta">Sin líneas de presupuesto aún.</p>';
+      var addPlan = locked
+        ? ''
+        : '<button type="button" class="btn btn-primary btn-sm" data-add-plan="' + c.id + '">+ Presupuesto</button>';
+      var canUp = idx > 0;
+      var canDown = idx < cats.length - 1;
+      return '<article class="cat-plan-card' + (collapsed ? ' is-collapsed' : '') + '" data-cat-id="' + c.id + '">' +
+        '<div class="cat-plan-card__head">' +
+        '<div class="cat-plan-card__title">' +
+        '<button type="button" class="cat-plan-toggle" data-toggle-cat="' + c.id + '" aria-expanded="' +
+        (collapsed ? 'false' : 'true') + '" title="' + (collapsed ? 'Expandir' : 'Reducir') + '">' +
+        (collapsed ? '▸' : '▾') + '</button>' +
+        '<div><h3>' + escapeHtml(c.name) + ' ' + typeBadge(c.type) + '</h3>' +
+        (desc && !collapsed ? '<p class="cat-plan-card__meta">' + escapeHtml(desc) + '</p>' : '') +
+        '<p class="cat-plan-card__stats cat-plan-card__stats--inline">' +
+        '<strong>Planeado:</strong> ' + formatChartMoney(plannedTotal) +
+        (lines.length ? ' · ' + lines.length + (lines.length === 1 ? ' línea' : ' líneas') : '') +
+        '</p></div></div>' +
+        '<div class="loan-card__actions cat-plan-card__actions">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-move-cat="' + c.id +
+        '" data-dir="up" title="Subir"' + (canUp ? '' : ' disabled') + '>↑</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-move-cat="' + c.id +
+        '" data-dir="down" title="Bajar"' + (canDown ? '' : ' disabled') + '>↓</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-edit-cat="' + c.id + '">Editar</button>' +
+        addPlan +
+        '</div></div>' +
+        '<div class="cat-plan-card__body">' + linesHtml + '</div></article>';
+    }).join('');
+
+    root.querySelectorAll('[data-toggle-cat]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-toggle-cat');
+        setCatCollapsed(id, !isCatCollapsed(id));
+        renderPlan();
+      });
+    });
+    root.querySelectorAll('[data-move-cat]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        moveCategory(btn.getAttribute('data-move-cat'), btn.getAttribute('data-dir'));
+      });
+    });
+    root.querySelectorAll('[data-edit-cat]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var c = state.budget.categories.find(function (x) {
+          return x.id === btn.getAttribute('data-edit-cat');
+        });
+        if (c) openCatModal(c);
+      });
+    });
+    root.querySelectorAll('[data-add-plan]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openPlanModal({ categoryId: btn.getAttribute('data-add-plan') });
+      });
+    });
+    root.querySelectorAll('[data-move-plan]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        movePlanLine(btn.getAttribute('data-move-plan'), btn.getAttribute('data-dir'));
+      });
+    });
+    root.querySelectorAll('[data-edit-plan]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-edit-plan');
+        var line = ((state.budget.period && state.budget.period.budget) || []).find(function (x) {
+          return x.id === id;
+        });
+        if (line) openPlanModal(line);
+      });
+    });
+  }
+
+  function renderExecution() {
+    var tbody = document.getElementById('exeBody');
+    if (!tbody || !state.budget || !state.budget.period) return;
+    var locked = periodLocked();
+    var rows = (state.budget.period.executions || []).slice().sort(function (a, b) {
+      return String(b.date || '').localeCompare(String(a.date || ''));
+    });
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Sin movimientos este ciclo.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (ex) {
+      var action = locked
+        ? '<span style="color:#7a8889;font-size:0.85rem">—</span>'
+        : '<button type="button" class="btn btn-outline btn-sm" data-edit-exe="' + ex.id + '">Editar</button>';
+      return '<tr class="' + rowTypeClass(ex.type) + '">' +
+        '<td>' + escapeHtml(ex.date || '') + '</td>' +
+        '<td><strong>' + escapeHtml(ex.name || '') + '</strong>' +
+        (ex.notes ? '<br><small>' + escapeHtml(ex.notes) + '</small>' : '') + '</td>' +
+        '<td>' + typeBadge(ex.type) + '</td>' +
+        '<td>' + formatAmountWithBadge(ex.amount, ex.currency, ex.type) + '</td>' +
+        '<td>' + action + '</td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-edit-exe]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var ex = state.budget.period.executions.find(function (x) {
+          return x.id === btn.getAttribute('data-edit-exe');
+        });
+        if (ex) openExeModal(ex);
+      });
+    });
+  }
+
+  function fillHistCycleFilter() {
+    var sel = document.getElementById('histCycleFilter');
+    if (!sel || !state.budget) return;
+    var prev = sel.value;
+    var cycles = state.budget.cycles || [];
+    var opts = '<option value="">Todos (últimos 12)</option>' + cycles.map(function (c) {
+      return '<option value="' + c.key + '">' + formatCycleLabel(c) + '</option>';
+    }).join('');
+    sel.innerHTML = opts;
+    if (prev && Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) {
+      sel.value = prev;
+    }
+  }
+
+  function renderHistory() {
+    var tbody = document.getElementById('histBody');
+    if (!tbody || !state.budget) return;
+    fillHistCycleFilter();
+    var filterKey = (document.getElementById('histCycleFilter') || {}).value || '';
+    var rows = (state.budget.history || []).filter(function (h) {
+      if (h.type === 'income') return false;
+      if (filterKey && h.cycleKey !== filterKey) return false;
+      return true;
+    });
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Sin gastos en este filtro.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (h) {
+      return '<tr>' +
+        '<td>' + escapeHtml(h.date || '') + '</td>' +
+        '<td>' + escapeHtml((h.startDate || '') + ' → ' + (h.endDate || '')) + '</td>' +
+        '<td>' + escapeHtml(h.name || catName(h.categoryId)) + '</td>' +
+        '<td>' + formatAmountWithBadge(h.amount, h.currency) + '</td>' +
+        '<td>' + formatMoney(h.amountCrc != null ? h.amountCrc : h.amount) + '</td></tr>';
+    }).join('');
+  }
+
+  function openModal(title, html, mode, id, canDelete) {
+    state.modalMode = mode;
+    state.modalId = id || null;
     modalTitle.textContent = title;
     modalBody.innerHTML = html;
-    var modalEl = modalBackdrop && modalBackdrop.querySelector('.modal');
-    if (modalEl) modalEl.classList.toggle('modal--wide', mode === 'service');
     if (modalDelete) {
-      // Yurguen: borrar servicio solo al editar
-      modalDelete.hidden = !(mode === 'service' && id);
-      modalDelete.textContent = 'Quitar servicio';
+      modalDelete.hidden = !canDelete;
+      modalDelete.textContent = 'Eliminar';
     }
     modalBackdrop.classList.add('open');
   }
 
   function closeModal() {
     modalBackdrop.classList.remove('open');
-    var modalEl = modalBackdrop && modalBackdrop.querySelector('.modal');
-    if (modalEl) modalEl.classList.remove('modal--wide');
+    state.modalMode = null;
+    state.modalId = null;
+    state.modalLoanId = null;
     if (modalDelete) modalDelete.hidden = true;
-    modalMode = null;
-    modalEntityId = null;
   }
 
-  // Yurguen: quitar servicio desde el modal
-  function deleteFromModal() {
-    if (modalMode !== 'service' || !modalEntityId) return;
-    if (!confirm('¿Quitar este servicio y todos sus cobros?')) return;
-    var sid = modalEntityId;
-    state.data.services = state.data.services.filter(function (s) { return s.id !== sid; });
-    state.data.payments = state.data.payments.filter(function (p) { return p.serviceId !== sid; });
-    closeModal();
-    persist().then(ensureMonthPayments);
+  function openCatModal(cat) {
+    var c = cat || {};
+    openModal(
+      cat ? 'Editar categoría' : 'Nueva categoría',
+      '<div class="field"><label>Nombre *</label><input id="mCatName" value="' + escapeHtml(c.name || '') + '"></div>' +
+      '<div class="field"><label>Tipo</label><select id="mCatType">' +
+      '<option value="expense"' + (c.type !== 'income' ? ' selected' : '') + '>Egreso</option>' +
+      '<option value="income"' + (c.type === 'income' ? ' selected' : '') + '>Ingreso</option></select></div>' +
+      '<div class="field"><label>Comentario</label><textarea id="mCatDesc" rows="2" placeholder="Opcional">' +
+      escapeHtml(c.description || '') + '</textarea></div>' +
+      '<p style="margin:0;font-size:0.8rem;color:#7a8889">Después podés agregarle varios presupuestos a esta categoría.</p>',
+      'category',
+      c.id || null,
+      !!cat
+    );
   }
 
-  function bindServiceModalFields() {
-    var cur = document.getElementById('mCurrency');
-    var wrap = document.getElementById('mIntlWrap');
-    var monthWrap = document.getElementById('mMonthWrap');
-    var periodicity = document.getElementById('mPeriodicity');
-    var preview = document.getElementById('mCrcPreview');
-    var scheduleHint = document.getElementById('mScheduleHint');
-
-    function refreshPeriodicity() {
-      var per = periodicity ? periodicity.value : 'monthly';
-      var showMonth = per === 'yearly' || per === 'quarterly';
-      if (monthWrap) monthWrap.style.display = showMonth ? '' : 'none';
-      if (scheduleHint) scheduleHint.style.display = showMonth ? '' : 'none';
+  function openPlanModal(line) {
+    if (periodLocked()) {
+      alert(lockMessage());
+      return;
     }
-
-    function refresh() {
-      refreshPeriodicity();
-      var isUsd = cur && cur.value === 'USD';
-      var rateField = document.getElementById('mRateField');
-      if (rateField) rateField.style.display = isUsd ? '' : 'none';
-      if (wrap) wrap.style.display = isUsd ? '' : 'none';
-      if (preview) {
-        var amt = Number(document.getElementById('mAmount').value);
-        if (document.getElementById('mAmount').value.trim() === '' || isNaN(amt)) {
-          preview.textContent = '';
-          return;
-        }
-        var rate = Number(document.getElementById('mExchangeRate').value) || defaultRate();
-        var intlRaw = document.getElementById('mIntlTxPercent');
-        var intlPct = intlRaw && intlRaw.value.trim() !== '' ? parseFloat(intlRaw.value) : 0;
-        var exempt = document.getElementById('mSvcIvaExempt') && document.getElementById('mSvcIvaExempt').checked;
-        var total = calcFinalCrc(
-          amountToCrc(amt, isUsd ? 'USD' : 'CRC', rate),
-          isUsd ? 'USD' : 'CRC',
-          isUsd ? intlPct : 0,
-          exempt
-        ).total;
-        preview.textContent = 'Total estimado: ' + formatMoney(total, 'CRC') +
-          (exempt ? ' (sin IVA)' : ' (base + IVA' + (isUsd && intlPct > 0 ? ' + tx ' + intlPct + '%' : '') + ')');
-      }
+    var L = line || {};
+    var cats = (state.budget && state.budget.categories) || [];
+    if (!cats.length) {
+      alert('Primero creá una categoría.');
+      return;
     }
-    if (periodicity) periodicity.onchange = refresh;
-    if (cur) cur.onchange = refresh;
-    var exemptEl = document.getElementById('mSvcIvaExempt');
-    if (exemptEl) exemptEl.onchange = refresh;
-    ['mAmount', 'mExchangeRate', 'mIntlTxPercent'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el) el.oninput = refresh;
-    });
-    refresh();
-  }
-
-  // Yurguen: cliente solo requiere nombre
-  function openClientModal(client) {
-    var c = client || {};
+    var existingTag = String(L.tag || L.label || L.planLabel || '').trim();
     openModal(
-      client ? 'Editar cliente' : 'Nuevo cliente',
-      '<div class="field"><label>Nombre del cliente *</label><input id="mName" value="' + escapeHtml(c.name || '') + '" placeholder="Ej. Ferretería El Buen Precio"></div>' +
-      '<div class="field"><label><input type="checkbox" id="mActive" ' + (c.active !== false ? 'checked' : '') + '> Activo</label></div>',
-      'client',
-      c.id || null
+      L.id ? 'Editar presupuesto' : 'Nuevo presupuesto',
+      '<div class="field"><label for="mPlanCat">Categoría *</label><select id="mPlanCat">' +
+      categoryOptionsHtml(L.categoryId || null) + '</select></div>' +
+      '<div class="field"><label for="mPlanTag">Etiqueta</label>' +
+      '<input id="mPlanTag" name="planTag" type="text" maxlength="120" value="' +
+      escapeHtml(existingTag) + '" placeholder="Ej. Quincena 1, Extra, etc." autocomplete="off"></div>' +
+      '<div class="field"><label for="mPlanAmount">Monto planeado *</label>' +
+      '<input id="mPlanAmount" type="number" step="any" value="' +
+      (L.planned != null ? L.planned : '') + '"></div>' +
+      '<div class="field"><label>Moneda *</label>' + currencySelectHtml('mPlanCur', L.currency || 'CRC') + '</div>' +
+      '<p style="margin:0;font-size:0.8rem;color:#7a8889">Varias líneas por categoría; la etiqueta las distingue.</p>',
+      'plan',
+      L.id || null,
+      !!L.id
     );
-  }
-
-  function openPaymentModal(payment) {
-    openModal(
-      'Descripción del cobro',
-      '<div class="field"><label>Descripción (qué se cobra este mes)</label>' +
-      '<textarea id="mPayDesc" rows="4" placeholder="Ej. Mantenimiento web + hosting marzo 2026">' +
-      escapeHtml(paymentDescription(payment)) + '</textarea></div>' +
-      '<p style="font-size:0.85rem;color:#7a8889">Podés personalizarla por mes; si está vacía al crear el cobro, se usa la del servicio.</p>',
-      'payment',
-      payment.id
-    );
-  }
-
-  function openServiceModal(clientId, service) {
-    var s = service || {};
-    var rateVal = s.exchangeRate != null ? s.exchangeRate : '';
-    openModal(
-      service ? 'Editar servicio' : 'Servicio de cobro',
-      '<div class="field"><label>Nombre del servicio *</label><input id="mSvcName" value="' + escapeHtml(s.name || '') + '" placeholder="Ej. Mantenimiento web"></div>' +
-      '<div class="field"><label>Descripción del cobro (por defecto cada mes)</label>' +
-      '<textarea id="mSvcDesc" rows="2" placeholder="Ej. Hosting + actualizaciones del sitio">' +
-      escapeHtml(s.description || '') + '</textarea></div>' +
-      '<div class="field-row field-row-svc">' +
-      '<div class="field"><label>Periodicidad</label><select id="mPeriodicity">' +
-      '<option value="monthly"' + ((s.periodicity || 'monthly') === 'monthly' ? ' selected' : '') + '>Mensual</option>' +
-      '<option value="quarterly"' + (s.periodicity === 'quarterly' ? ' selected' : '') + '>Trimestral</option>' +
-      '<option value="yearly"' + (s.periodicity === 'yearly' ? ' selected' : '') + '>Anual</option></select></div>' +
-      '<div class="field" id="mMonthWrap" style="display:none"><label>Mes de cobro</label><select id="mBillingMonth">' +
-      monthSelectHtml(s.billingMonth) + '</select></div>' +
-      '<div class="field"><label>Día de cobro (1-28)</label><input id="mBillingDay" type="number" min="1" max="28" value="' + (s.billingDay || 1) + '"></div></div>' +
-      '<div class="field-row field-row-svc">' +
-      '<div class="field"><label>Monto * <small>(negativo = gasto)</small></label><input id="mAmount" type="number" step="0.01" value="' + (s.amountMonthly != null ? s.amountMonthly : '') + '"></div>' +
-      '<div class="field"><label>Moneda</label><select id="mCurrency"><option value="CRC"' + ((s.currency || 'CRC') === 'CRC' ? ' selected' : '') + '>Colones (CRC)</option>' +
-      '<option value="USD"' + (s.currency === 'USD' ? ' selected' : '') + '>Dólares (USD)</option></select></div>' +
-      '<div class="field" id="mRateField" style="display:none"><label>Tipo de cambio (₡ por $1)</label>' +
-      '<input id="mExchangeRate" type="number" min="1" step="any" placeholder="Vacío = global (' + defaultRate() + ')"></div></div>' +
-      '<div id="mIntlWrap" class="field-row field-row-svc" style="display:none">' +
-      '<div class="field"><label>Tx internacional (%)</label>' +
-      '<input id="mIntlTxPercent" type="number" min="0" max="100" step="any" placeholder="Vacío = sin cargo" value="' +
-      (s.intlTxPercent != null ? s.intlTxPercent : '') + '"></div></div>' +
-      '<p id="mCrcPreview" style="font-size:0.9rem;color:#4a5a5b;margin:0 0 8px"></p>' +
-      '<div class="field-row field-row-checks">' +
-      '<div class="field"><label><input type="checkbox" id="mSvcActive" ' + (s.active !== false ? ' checked' : '') + '> Activo</label></div>' +
-      '<div class="field"><label><input type="checkbox" id="mSvcIvaExempt" ' + (s.ivaExempt ? ' checked' : '') + '> Exonerado (sin IVA)</label></div></div>' +
-      '<p id="mScheduleHint" style="font-size:0.85rem;color:#7a8889;display:none">Anual/trimestral: elegí el <strong>mes</strong> de cobro. El cobro del mes se genera solo cuando corresponde.</p>',
-      'service',
-      s.id || null
-    );
-    modalBackdrop.dataset.clientId = clientId;
+    // Focus etiqueta para que no quede en blanco sin darse cuenta
     setTimeout(function () {
-      if (s.exchangeRate != null) {
-        var r = document.getElementById('mExchangeRate');
-        if (r) r.value = rateVal;
-      }
-      bindServiceModalFields();
+      var el = document.getElementById('mPlanTag');
+      if (el) el.focus();
     }, 0);
   }
 
-  function saveModal() {
-    if (modalMode === 'client') {
-      var name = document.getElementById('mName').value.trim();
-      if (!name) { alert('Nombre obligatorio.'); return; }
-      var payload = {
-        name: name,
-        active: document.getElementById('mActive').checked
-      };
-      if (modalEntityId) Object.assign(clientById(modalEntityId), payload);
-      else {
-        payload.id = uid();
-        payload.createdAt = new Date().toISOString();
-        state.data.clients.push(payload);
-        state.selectedClientId = payload.id;
-      }
-    } else if (modalMode === 'service') {
-      var svcName = document.getElementById('mSvcName').value.trim();
-      var amountRaw = document.getElementById('mAmount').value.trim();
-      var amount = Number(amountRaw);
-      var currency = document.getElementById('mCurrency').value;
-      var day = Math.min(28, Math.max(1, Number(document.getElementById('mBillingDay').value) || 1));
-      var rateInput = document.getElementById('mExchangeRate').value.trim();
-      var intlInput = document.getElementById('mIntlTxPercent').value.trim();
-      // Yurguen: permitir montos negativos (gastos)
-      if (!svcName || amountRaw === '' || isNaN(amount)) { alert('Nombre y monto obligatorios.'); return; }
-      var exchangeRate = currency === 'USD' && rateInput !== '' ? Number(rateInput) : null;
-      var rateUsed = currency === 'USD' ? (exchangeRate != null ? exchangeRate : defaultRate()) : null;
-      var intlTx = null;
-      if (currency === 'USD' && intlInput !== '') {
-        intlTx = parseFloat(intlInput);
-        if (isNaN(intlTx) || intlTx < 0 || intlTx > 100) { alert('Tx internacional: 0 a 100, o vacío.'); return; }
-      }
-      var periodicity = document.getElementById('mPeriodicity').value;
-      var billingMonth = Number(document.getElementById('mBillingMonth').value) || 1;
-      var payloadSvc = {
-        clientId: modalBackdrop.dataset.clientId,
-        name: svcName,
-        description: document.getElementById('mSvcDesc').value.trim(),
-        amountMonthly: amount,
-        currency: currency,
-        exchangeRate: exchangeRate,
-        intlTxPercent: currency === 'USD' ? intlTx : null,
-        periodicity: periodicity,
-        billingMonth: (periodicity === 'yearly' || periodicity === 'quarterly') ? billingMonth : null,
-        billingDay: day,
-        active: document.getElementById('mSvcActive').checked,
-        ivaExempt: document.getElementById('mSvcIvaExempt').checked
-      };
-      var svcId;
-      if (modalEntityId) {
-        Object.assign(serviceById(modalEntityId), payloadSvc);
-        svcId = modalEntityId;
-      } else {
-        payloadSvc.id = uid();
-        state.data.services.push(payloadSvc);
-        svcId = payloadSvc.id;
-      }
-      var savedSvc = serviceById(svcId);
-      paymentViewPeriods().forEach(function (period) {
-        if (!serviceDueInPeriod(savedSvc, period)) return;
-        state.data.payments.forEach(function (p) {
-          if (p.serviceId !== svcId || p.period !== period || p.status === 'paid') return;
-          var rate = currency === 'USD' ? rateUsed : null;
-          p.amount = amount;
-          p.currency = currency;
-          p.exchangeRate = rate;
-          p.intlTxPercent = payloadSvc.intlTxPercent;
-          p.ivaExempt = payloadSvc.ivaExempt;
-          p.amountCrc = amountToCrc(amount, currency, rate);
-          if (!paymentDescription(p)) p.description = payloadSvc.description || '';
-        });
-      });
-      pruneInvalidPayments();
-    } else if (modalMode === 'payment') {
-      var p = state.data.payments.find(function (x) { return x.id === modalEntityId; });
-      if (p) {
-        p.description = document.getElementById('mPayDesc').value.trim();
-        p.notes = p.description;
-      }
-    }
-    closeModal();
-    persist().then(ensureMonthPayments);
+  function openLoanModal(loan) {
+    var L = loan || {};
+    openModal(
+      loan ? 'Editar persona' : 'Nueva persona (préstamo)',
+      '<div class="field"><label>Persona *</label><input id="mLoanPerson" value="' + escapeHtml(L.person || '') + '"></div>' +
+      '<div class="field"><label>Tipo</label><select id="mLoanSide">' +
+      '<option value="lent"' + (L.side !== 'borrowed' ? ' selected' : '') + '>Yo presté (me deben)</option>' +
+      '<option value="borrowed"' + (L.side === 'borrowed' ? ' selected' : '') + '>Me prestaron (yo debo)</option></select></div>' +
+      '<div class="field"><label>Notas</label><textarea id="mLoanNotes" rows="2">' + escapeHtml(L.notes || '') + '</textarea></div>' +
+      '<p style="margin:0;font-size:0.8rem;color:#7a8889">No afecta el presupuesto. Solo histórico de saldos.</p>',
+      'loan',
+      L.id || null,
+      !!loan
+    );
   }
 
-  // ---- Events ----
+  function openLoanMovModal(loanId, movId) {
+    var loan = (state.budget.loans || []).find(function (x) { return x.id === loanId; });
+    if (!loan) {
+      alert('Préstamo no encontrado.');
+      return;
+    }
+    var mov = null;
+    if (movId) {
+      mov = (loan.movements || []).find(function (m) { return m.id === movId; });
+    }
+    var m = mov || {};
+    var today = new Date().toISOString().slice(0, 10);
+    state.modalLoanId = loanId;
+    openModal(
+      mov ? 'Editar movimiento' : 'Sumar / restar — ' + loan.person,
+      '<div class="field"><label>Operación *</label><select id="mLoanSign">' +
+      '<option value="1"' + (Number(m.sign) !== -1 ? ' selected' : '') + '>Sumar (+)</option>' +
+      '<option value="-1"' + (Number(m.sign) === -1 ? ' selected' : '') + '>Restar (−)</option></select></div>' +
+      '<div class="field"><label>Monto *</label><input id="mLoanAmount" type="number" step="any" value="' +
+      (m.amount != null ? m.amount : '') + '"></div>' +
+      '<div class="field"><label>Moneda *</label>' + currencySelectHtml('mLoanCur', m.currency || 'CRC') + '</div>' +
+      '<div class="field"><label>Fecha</label><input id="mLoanDate" type="date" value="' +
+      escapeHtml(m.date || today) + '"></div>' +
+      '<div class="field"><label>Nota</label><input id="mLoanNote" value="' + escapeHtml(m.note || '') + '"></div>',
+      'loan-mov',
+      m.id || null,
+      !!mov
+    );
+  }
+
+  function currencySelectHtml(id, value) {
+    var cur = normalizeCur(value);
+    return '<div class="currency-field">' +
+      '<select id="' + id + '" aria-label="Moneda">' +
+      '<option value="CRC"' + (cur === 'CRC' ? ' selected' : '') + '>₡ Colones (CRC)</option>' +
+      '<option value="USD"' + (cur === 'USD' ? ' selected' : '') + '>US$ Dólares (USD)</option>' +
+      '</select>' +
+      '<p style="margin:6px 0 0;font-size:0.8rem;color:#7a8889">Si elegís USD, se convierte a ₡ con el tipo de cambio del ciclo.</p>' +
+      '</div>';
+  }
+
+  function updateExeCatStats() {
+    var el = document.getElementById('mExeCatStats');
+    var sel = document.getElementById('mExeCat');
+    if (!el || !sel || !sel.value) {
+      if (el) el.textContent = 'Elegí una categoría para ver el presupuesto.';
+      return;
+    }
+    var st = categoryStatsCrc(sel.value);
+    el.innerHTML =
+      '<strong>Presupuestado:</strong> ' + formatChartMoney(st.planned) +
+      ' · <strong>Ejecutado:</strong> ' + formatChartMoney(st.actual) +
+      ' · <strong>Restante:</strong> ' + formatChartMoney(st.remaining);
+  }
+
+  function openExeModal(ex) {
+    if (periodLocked()) {
+      alert(lockMessage());
+      return;
+    }
+    var e = ex || {};
+    var cats = (state.budget && state.budget.categories) || [];
+    if (!cats.length) {
+      alert('Primero creá categorías en Presupuesto.');
+      return;
+    }
+    var opts = categoryOptionsHtml(e.categoryId || null);
+    var today = new Date().toISOString().slice(0, 10);
+    openModal(
+      ex ? 'Editar movimiento' : 'Nuevo movimiento',
+      '<div class="field"><label>Categoría *</label><select id="mExeCat">' + opts + '</select></div>' +
+      '<p id="mExeCatStats" class="panel-hint" style="margin:0 0 10px"></p>' +
+      '<div class="field"><label>Monto *</label><input id="mExeAmount" type="number" step="any" value="' +
+      (e.amount != null ? e.amount : '') + '"></div>' +
+      '<div class="field"><label>Moneda *</label>' + currencySelectHtml('mExeCur', e.currency || 'CRC') + '</div>' +
+      '<div class="field"><label>Fecha</label><input id="mExeDate" type="date" value="' +
+      escapeHtml(e.date || today) + '"></div>' +
+      '<div class="field"><label>Notas</label><textarea id="mExeNotes" rows="2">' +
+      escapeHtml(e.notes || '') + '</textarea></div>' +
+      '<p style="margin:0;font-size:0.8rem;color:#7a8889">Podés registrar varios movimientos de la misma categoría.</p>',
+      'execution',
+      e.id || null,
+      !!ex
+    );
+    var catSel = document.getElementById('mExeCat');
+    if (catSel) {
+      catSel.addEventListener('change', updateExeCatStats);
+      updateExeCatStats();
+    }
+  }
+
+  function saveModal() {
+    if (state.modalMode === 'category') {
+      var name = document.getElementById('mCatName').value.trim();
+      if (!name) { alert('Nombre obligatorio.'); return; }
+      api('budget.category.save', {
+        id: state.modalId,
+        name: name,
+        type: document.getElementById('mCatType').value,
+        description: (document.getElementById('mCatDesc') || {}).value
+          ? document.getElementById('mCatDesc').value.trim()
+          : ''
+      })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'plan') {
+      var planCatEl = document.getElementById('mPlanCat');
+      var planAmtEl = document.getElementById('mPlanAmount');
+      var planCurEl = document.getElementById('mPlanCur');
+      var planTagEl = document.getElementById('mPlanTag') || document.getElementById('mPlanLabel');
+      var planCat = planCatEl ? planCatEl.value : '';
+      var planRaw = planAmtEl ? planAmtEl.value.trim() : '';
+      var planAmt = Number(planRaw);
+      var planTag = planTagEl ? String(planTagEl.value || '').trim() : '';
+      if (!planCat || planRaw === '' || isNaN(planAmt)) {
+        alert('Categoría y monto obligatorios.');
+        return;
+      }
+      api('budget.plan.save', {
+        id: state.modalId,
+        cycleKey: currentCycleKey(),
+        categoryId: planCat,
+        planned: planAmt,
+        currency: planCurEl ? planCurEl.value : 'CRC',
+        tag: planTag,
+        label: planTag,
+        planLabel: planTag
+      })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'loan') {
+      var person = document.getElementById('mLoanPerson').value.trim();
+      if (!person) { alert('Persona obligatoria.'); return; }
+      api('budget.loan.save', {
+        id: state.modalId,
+        person: person,
+        side: document.getElementById('mLoanSide').value,
+        notes: document.getElementById('mLoanNotes').value.trim()
+      })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'loan-mov') {
+      var amountRaw = document.getElementById('mLoanAmount').value.trim();
+      var amount = Number(amountRaw);
+      if (amountRaw === '' || isNaN(amount) || amount < 0) {
+        alert('Monto obligatorio.');
+        return;
+      }
+      api('budget.loan.movement.save', {
+        id: state.modalId,
+        loanId: state.modalLoanId,
+        sign: Number(document.getElementById('mLoanSign').value),
+        amount: amount,
+        currency: document.getElementById('mLoanCur').value,
+        date: document.getElementById('mLoanDate').value,
+        note: document.getElementById('mLoanNote').value.trim()
+      })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'execution') {
+      var exeCat = document.getElementById('mExeCat').value;
+      var amountRaw = document.getElementById('mExeAmount').value.trim();
+      var amount = Number(amountRaw);
+      if (!exeCat || amountRaw === '' || isNaN(amount)) {
+        alert('Categoría y monto obligatorios.');
+        return;
+      }
+      api('budget.execution.save', {
+        id: state.modalId,
+        cycleKey: currentCycleKey(),
+        categoryId: exeCat,
+        amount: amount,
+        currency: document.getElementById('mExeCur').value,
+        date: document.getElementById('mExeDate').value,
+        notes: document.getElementById('mExeNotes').value.trim()
+      })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'user') saveUserModal();
+  }
+
+  function deleteModal() {
+    if (state.modalMode === 'category' && state.modalId) {
+      if (!confirm('¿Eliminar categoría? Se quitan también sus presupuestos del ciclo abierto.')) return;
+      api('budget.category.delete', { id: state.modalId })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'plan' && state.modalId) {
+      if (!confirm('¿Eliminar esta línea de presupuesto?')) return;
+      api('budget.plan.delete', { cycleKey: currentCycleKey(), id: state.modalId })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'loan' && state.modalId) {
+      if (!confirm('¿Eliminar esta persona y todo su histórico de préstamos?')) return;
+      api('budget.loan.delete', { id: state.modalId })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'loan-mov' && state.modalId) {
+      if (!confirm('¿Eliminar este movimiento?')) return;
+      api('budget.loan.movement.delete', { loanId: state.modalLoanId, id: state.modalId })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'execution' && state.modalId) {
+      if (!confirm('¿Eliminar movimiento?')) return;
+      api('budget.execution.delete', { cycleKey: currentCycleKey(), id: state.modalId })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'user') deleteUserModal();
+  }
+
+  function saveProfile() {
+    var day = Number(document.getElementById('myBillingDay').value) || 1;
+    var prev = (state.user && state.user.billingDayStart) || 1;
+    if (day !== prev) {
+      var ok = confirm(
+        'Vas a cambiar el día de inicio de ' + prev + ' a ' + day + '.\n\n' +
+        'Ese día es cuando arranca cada ciclo (ej. 1 = del 1 al fin de mes).\n' +
+        'El inicio del periodo actual no cambia; se recalcula el FIN\n' +
+        '(día anterior al próximo inicio). No puede quedar antes de hoy.\n' +
+        'Los periodos cerrados no se tocan.\n\n' +
+        '¿Confirmás el cambio?'
+      );
+      if (!ok) {
+        document.getElementById('myBillingDay').value = prev;
+        return;
+      }
+    }
+    // Siempre sincroniza fin del periodo abierto con el día de inicio
+    api('profile.update', { billingDayStart: day })
+      .then(function (res) {
+        setSession(getToken(), res.user);
+        var dayInput = document.getElementById('myBillingDay');
+        if (dayInput) dayInput.value = res.user.billingDayStart || 1;
+        if (res.period && state.budget && state.budget.period && res.period.key === state.budget.period.key) {
+          state.budget.period.startDate = res.period.startDate;
+          state.budget.period.endDate = res.period.endDate;
+          if (state.budget.cycle) {
+            state.budget.cycle.startDate = res.period.startDate;
+            state.budget.cycle.endDate = res.period.endDate;
+          }
+        }
+        return loadBudget();
+      })
+      .catch(function (err) { alert(err.message || 'No se pudo guardar'); });
+  }
+
+  function saveFxRate() {
+    if (periodLocked()) {
+      alert(lockMessage());
+      return;
+    }
+    var raw = document.getElementById('fxRateInput').value.trim();
+    var rate = Number(raw);
+    if (raw === '' || isNaN(rate) || rate < 0) {
+      alert('Tipo de cambio inválido.');
+      return;
+    }
+    api('budget.period.update', {
+      cycleKey: currentCycleKey(),
+      exchangeRate: rate
+    })
+      .then(function () { return loadBudget(); })
+      .catch(function (err) { alert(err.message || 'No se pudo guardar el TC'); });
+  }
+
+  function canCloseCurrentCycle() {
+    if (periodIsClosed()) return false;
+    if (state.budget && state.budget.canClosePeriod) return true;
+    var end = state.budget && state.budget.period && state.budget.period.endDate;
+    if (!end) return false;
+    var today = new Date();
+    var todayIsoStr = today.getFullYear() + '-' +
+      String(today.getMonth() + 1).padStart(2, '0') + '-' +
+      String(today.getDate()).padStart(2, '0');
+    return String(end) <= todayIsoStr;
+  }
+
+  function closeCurrentCycle() {
+    if (periodIsClosed()) return;
+    if (!canCloseCurrentCycle()) {
+      var end = state.budget && state.budget.period && state.budget.period.endDate;
+      var endLabel = end ? String(end).split('-').reverse().join('/') : '';
+      alert(
+        'No se puede cerrar el ciclo hasta el último día' +
+          (endLabel ? ' (' + endLabel + ')' : '') +
+          '.'
+      );
+      return;
+    }
+    var rate = currentFxRate();
+    var p = state.budget && state.budget.period;
+    var dates = p
+      ? ((p.startDate || '').split('-').reverse().join('/') + ' → ' + (p.endDate || '').split('-').reverse().join('/'))
+      : '';
+    var ok = confirm(
+      '¿Cerrar este periodo?\n\n' +
+      'Periodo: ' + dates + '\n' +
+      'Tipo de cambio: 1 $ = ₡' + (rate > 0 ? rate.toLocaleString('es-CR') : '—') + '\n\n' +
+      'Se congela tal cual está (TC, fechas, presupuesto y ejecución).\n' +
+      'Después NO se puede cambiar nunca.\n' +
+      'Se abre el siguiente ciclo.\n\n' +
+      '¿Confirmás el cierre?'
+    );
+    if (!ok) return;
+    api('budget.period.close', { cycleKey: currentCycleKey() })
+      .then(function (res) {
+        var nextKey = res.nextCycle && res.nextCycle.key;
+        return loadBudget(nextKey || null);
+      })
+      .catch(function (err) { alert(err.message || 'No se pudo cerrar'); });
+  }
+
+  function loadUsers() {
+    return api('users.list').then(function (res) {
+      state.users = res.users || [];
+      renderUsers();
+    }).catch(function (err) {
+      showApiError(err.message || 'Error al cargar usuarios');
+    });
+  }
+
+  function renderUsers() {
+    var tbody = document.getElementById('usersBody');
+    if (!tbody) return;
+    if (!state.users.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Sin usuarios.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = state.users.map(function (u) {
+      var st = u.active !== false ? 'Activo' : 'Inactivo';
+      var badge = u.active !== false ? 'badge-paid' : 'badge-overdue';
+      return '<tr>' +
+        '<td><strong>' + escapeHtml(u.username) + '</strong></td>' +
+        '<td>' + escapeHtml(u.displayName || '') + '</td>' +
+        '<td>' + escapeHtml(u.role) + '</td>' +
+        '<td>Día ' + (u.billingDayStart || 1) + '</td>' +
+        '<td><span class="badge-status ' + badge + '">' + st + '</span></td>' +
+        '<td><button type="button" class="btn btn-outline btn-sm" data-edit-user="' + u.id + '">Editar</button></td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-edit-user]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var u = state.users.find(function (x) { return x.id === btn.getAttribute('data-edit-user'); });
+        if (u) openUserModal(u);
+      });
+    });
+  }
+
+  function openUserModal(user) {
+    var u = user || {};
+    var isEdit = !!user;
+    // Yurguen: el día de inicio lo decide cada usuario en Mi cuenta
+    openModal(
+      isEdit ? 'Editar usuario' : 'Nuevo usuario',
+      '<div class="field"><label>Usuario *</label><input id="mUsername" value="' + escapeHtml(u.username || '') + '" ' + (isEdit ? 'disabled' : '') + '></div>' +
+      '<div class="field"><label>Nombre</label><input id="mDisplayName" value="' + escapeHtml(u.displayName || '') + '"></div>' +
+      '<div class="field"><label>Rol</label><select id="mRole">' +
+      '<option value="user"' + (u.role !== 'admin' ? ' selected' : '') + '>Usuario</option>' +
+      '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div>' +
+      (isEdit
+        ? '<p style="font-size:0.85rem;color:#7a8889">Día de inicio: ' + (u.billingDayStart || 1) + ' (lo cambia él en Mi cuenta).</p>' +
+          '<div class="field"><label>Contraseña nueva <small>(vacío = no cambiar)</small></label><input id="mPassword" type="password" autocomplete="new-password"></div>' +
+          '<div class="field"><label><input type="checkbox" id="mActive" ' + (u.active !== false ? 'checked' : '') + '> Activo</label></div>'
+        : '<div class="field"><label>Contraseña *</label><input id="mPassword" type="password" autocomplete="new-password"></div>'),
+      'user',
+      u.id || null,
+      isEdit && !(state.user && state.user.id === u.id)
+    );
+  }
+
+  function saveUserModal() {
+    var username = document.getElementById('mUsername').value.trim().toLowerCase();
+    var displayName = document.getElementById('mDisplayName').value.trim();
+    var role = document.getElementById('mRole').value;
+    var password = document.getElementById('mPassword').value;
+    if (state.modalId) {
+      var payload = {
+        id: state.modalId,
+        displayName: displayName,
+        role: role,
+        active: document.getElementById('mActive').checked
+      };
+      if (password) payload.newPassword = password;
+      api('users.update', payload)
+        .then(function () { closeModal(); return loadUsers(); })
+        .catch(function (err) { alert(err.message || 'Error al guardar'); });
+    } else {
+      if (!username || password.length < 6) {
+        alert('Usuario y contraseña (mín. 6) obligatorios.');
+        return;
+      }
+      api('users.create', {
+        username: username,
+        password: password,
+        displayName: displayName || username,
+        role: role,
+        billingDayStart: 1
+      })
+        .then(function () { closeModal(); return loadUsers(); })
+        .catch(function (err) { alert(err.message || 'Error al crear'); });
+    }
+  }
+
+  function deleteUserModal() {
+    if (!state.modalId) return;
+    if (!confirm('¿Eliminar este usuario?')) return;
+    api('users.delete', { id: state.modalId })
+      .then(function () { closeModal(); return loadUsers(); })
+      .catch(function (err) { alert(err.message || 'Error al eliminar'); });
+  }
+
+  function changePassword() {
+    var cur = document.getElementById('curPass').value;
+    var n1 = document.getElementById('newPass').value;
+    var n2 = document.getElementById('newPass2').value;
+    var msg = document.getElementById('passMsg');
+    if (msg) msg.hidden = true;
+    if (!cur || !n1) {
+      alert('Completá los campos.');
+      return;
+    }
+    if (n1 !== n2) {
+      alert('La contraseña nueva no coincide.');
+      return;
+    }
+    if (n1.length < 6) {
+      alert('Mínimo 6 caracteres.');
+      return;
+    }
+    api('changePassword', { currentPassword: cur, newPassword: n1 })
+      .then(function () {
+        document.getElementById('curPass').value = '';
+        document.getElementById('newPass').value = '';
+        document.getElementById('newPass2').value = '';
+        if (msg) {
+          msg.hidden = false;
+          msg.textContent = 'Contraseña actualizada.';
+          msg.className = 'admin-msg ok';
+        }
+      })
+      .catch(function (err) { alert(err.message || 'No se pudo cambiar'); });
+  }
+
   if (loginForm) {
     loginForm.addEventListener('submit', function (e) {
       e.preventDefault();
@@ -1221,95 +1493,85 @@
     });
   }
 
-  var loginBtn = document.getElementById('loginBtn');
-  if (loginBtn) {
-    loginBtn.addEventListener('click', function (e) {
-      e.preventDefault();
-      doLogin();
+  navButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      switchPanel(btn.getAttribute('data-panel'));
     });
-  }
+  });
 
   var btnLogout = document.getElementById('btnLogout');
-  if (btnLogout) btnLogout.addEventListener('click', showLogin);
-
-  document.getElementById('btnSaveRate').addEventListener('click', function () {
-    var rate = parseFloat(document.getElementById('defaultExchangeRate').value);
-    var iva = parseFloat(document.getElementById('ivaPercent').value);
-    if (!(rate > 0)) { alert('Tipo de cambio inválido.'); return; }
-    if (isNaN(iva) || iva < 0 || iva > 100) { alert('IVA: número entre 0 y 100.'); return; }
-    state.data.settings.defaultExchangeRate = rate;
-    state.data.settings.ivaPercent = iva;
-    persist();
-  });
-
-  document.getElementById('btnSaveRetention').addEventListener('click', function () {
-    state.data.settings.retentionMonths = Number(document.getElementById('retentionMonths').value);
-    state.data.settings.autoPurge = document.getElementById('autoPurge').checked;
-    persist().then(function () { alert('Política de retención guardada.'); });
-  });
-
-  document.getElementById('btnNewClient').addEventListener('click', function () { openClientModal(null); });
-  document.getElementById('btnGenMonth').addEventListener('click', function () {
-    ensureMonthPayments().then(function () {
-      renderAll();
-      alert('Cobros del mes listos.');
-    });
-  });
-
-  var btnExport = document.getElementById('btnExport');
-  if (btnExport) {
-    btnExport.addEventListener('click', function () {
-      var blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' });
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'exha-cobros-' + periodNow() + '.json';
-      a.click();
+  if (btnLogout) {
+    btnLogout.addEventListener('click', function () {
+      api('logout').catch(function () { /* ignore */ }).finally(showLogin);
     });
   }
 
-  var btnImport = document.getElementById('btnImport');
-  var importFile = document.getElementById('importFile');
-  if (btnImport && importFile) {
-    btnImport.addEventListener('click', function () { importFile.click(); });
-    importFile.addEventListener('change', function () {
-      var file = importFile.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function () {
-        try {
-          var parsed = JSON.parse(reader.result);
-          if (!confirm('¿Reemplazar datos en el archivo del servidor?')) return;
-          state.data = parsed;
-          if (!state.data.settings) state.data.settings = { defaultExchangeRate: 520 };
-          persist().then(function () { alert('Importado.'); });
-        } catch (err) {
-          alert('JSON inválido.');
-        }
-        importFile.value = '';
-      };
-      reader.readAsText(file);
+  var cycleSelect = document.getElementById('cycleSelect');
+  if (cycleSelect) {
+    cycleSelect.addEventListener('change', function () {
+      loadBudget(cycleSelect.value);
     });
   }
 
-  navButtons.forEach(function (btn) {
-    btn.addEventListener('click', function () { switchPanel(btn.getAttribute('data-panel')); });
+  var btnNewCat = document.getElementById('btnNewCat');
+  if (btnNewCat) btnNewCat.addEventListener('click', function () { openCatModal(null); });
+  var btnNewLoan = document.getElementById('btnNewLoan');
+  if (btnNewLoan) btnNewLoan.addEventListener('click', function () { openLoanModal(null); });
+  var btnNewExe = document.getElementById('btnNewExe');
+  if (btnNewExe) btnNewExe.addEventListener('click', function () { openExeModal(null); });
+  var btnNewUser = document.getElementById('btnNewUser');
+  if (btnNewUser) btnNewUser.addEventListener('click', function () { openUserModal(null); });
+  var btnChangePass = document.getElementById('btnChangePass');
+  if (btnChangePass) btnChangePass.addEventListener('click', changePassword);
+  var btnSaveProfile = document.getElementById('btnSaveProfile');
+  if (btnSaveProfile) btnSaveProfile.addEventListener('click', saveProfile);
+  var btnSaveFx = document.getElementById('btnSaveFx');
+  if (btnSaveFx) btnSaveFx.addEventListener('click', saveFxRate);
+  document.querySelectorAll('[data-chart-cur]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var cur = btn.getAttribute('data-chart-cur');
+      if (cur === 'USD' && !(currentFxRate() > 0)) {
+        alert('Definí y guardá el tipo de cambio arriba para ver montos en dólares.');
+        return;
+      }
+      setChartCurrency(cur);
+    });
   });
+  var btnCloseCycle = document.getElementById('btnCloseCycle');
+  if (btnCloseCycle) btnCloseCycle.addEventListener('click', closeCurrentCycle);
+  var histCycleFilter = document.getElementById('histCycleFilter');
+  if (histCycleFilter) {
+    histCycleFilter.addEventListener('change', function () {
+      renderHistory();
+    });
+  }
+
   if (modalSave) modalSave.addEventListener('click', saveModal);
   if (modalCancel) modalCancel.addEventListener('click', closeModal);
-  if (modalDelete) modalDelete.addEventListener('click', deleteFromModal);
+  if (modalDelete) modalDelete.addEventListener('click', deleteModal);
   if (modalBackdrop) {
     modalBackdrop.addEventListener('click', function (e) {
       if (e.target === modalBackdrop) closeModal();
     });
   }
 
-  if (isAuthed()) showShell();
-  else {
+  if (getToken()) {
+    loadSessionUser();
+    api('me')
+      .then(function (res) {
+        setSession(getToken(), res.user);
+        showShell();
+      })
+      .catch(function () {
+        showLogin();
+        if (location.protocol === 'file:') {
+          showLoginError('Abrí http://localhost:8080/eh-mnt.html (no el archivo directo).');
+        }
+      });
+  } else {
     showLogin();
     if (location.protocol === 'file:') {
       showLoginError('Abrí http://localhost:8080/eh-mnt.html (no el archivo directo).');
-    } else if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-      showLoginError('Este panel solo funciona en localhost con npm start.');
     }
   }
 })();

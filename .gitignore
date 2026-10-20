@@ -1,2 +1,7 @@
-# Yurguen: la clave NUNCA va a Git — solo en cada máquina
+# Yurguen: secretos NUNCA van a Git
 data/auth.local.json
+data/users.local.json
+data/budget.master.local
+
+# data/budgets/*.json = cifrados AES → SÍ van a Git (respaldo)
+# La llave (budget.master.local / BUDGET_MASTER_KEY) NO va a Git

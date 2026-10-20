@@ -1,0 +1,27 @@
+{
+  "seedVersion": 4,
+  "users": [
+    {
+      "id": "u_admin_seed",
+      "username": "admin",
+      "displayName": "Admin",
+      "role": "admin",
+      "active": true,
+      "billingDayStart": 1,
+      "passwordSalt": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
+      "passwordHash": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "u_yurguen_seed",
+      "username": "yurguen",
+      "displayName": "Yurguen",
+      "role": "user",
+      "active": true,
+      "billingDayStart": 1,
+      "passwordSalt": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
+      "passwordHash": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
