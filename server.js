@@ -33,8 +33,6 @@ function defaultData() {
     clients: [],
     services: [],
     payments: [],
-    // Yurguen: catálogo de precios (categoría, costo, moneda, unidad)
-    prices: [],
   };
 }
 
