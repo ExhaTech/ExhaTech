@@ -1102,6 +1102,6 @@ server.listen(PORT, () => {
   console.log(`ExhaTech → http://localhost:${PORT}`);
   console.log(`Presupuesto → http://localhost:${PORT}/eh-mnt.html`);
   console.log('Yurguen: usuarios en data/users.local.json (hashes, no va a Git).');
-  console.log('Login → admin (admin) | yurguen (user) — clave Gunner00');
+  console.log('Login → admin (admin) | yurguen_hernandez (user) — clave Gunner00');
   console.log('Check ciclo: inicio 22 desde 01/10 → fin', probe, probe === '2026-10-21' ? 'OK' : 'FALLÓ');
 });

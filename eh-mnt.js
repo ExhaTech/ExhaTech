@@ -4,7 +4,8 @@
 
   var TOKEN_KEY = 'exha_budget_token';
   var USER_KEY = 'exha_budget_user';
-  var CHART_CUR_KEY = 'exha_budget_chart_cur';
+  var SUMMARY_CUR_KEY = 'exha_budget_summary_cur';
+  var VIEW_CUR_KEY = 'exha_budget_view_cur';
   var API = 'api/eh-data.php';
 
   var state = {
@@ -14,7 +15,10 @@
     modalMode: null,
     modalId: null,
     modalLoanId: null,
-    chartCurrency: (sessionStorage.getItem(CHART_CUR_KEY) === 'USD' ? 'USD' : 'CRC')
+    // Resumen: solo ₡ / $ (₡ por defecto)
+    summaryCurrency: 'CRC',
+    // Presupuesto + Ejecución: Oficial / ₡ / $ (Oficial por defecto)
+    viewCurrency: 'OFFICIAL'
   };
 
   var loginView = document.getElementById('adminLogin');
@@ -85,58 +89,104 @@
     return 'US$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
   }
 
-  /** Resumen/gráficos: montos ya en ₡; opcionalmente a $ con el TC del ciclo */
+  /** Resumen: montos en ₡ o $ según summaryCurrency */
   function formatChartMoney(crcAmount) {
     var crc = Number(crcAmount) || 0;
-    if (state.chartCurrency !== 'USD') return formatMoney(crc);
-    var rate = currentFxRate();
-    if (!(rate > 0)) return 'US$—';
-    return formatUsd(crc / rate);
+    if (state.summaryCurrency === 'USD') {
+      var rate = currentFxRate();
+      if (!(rate > 0)) return 'US$—';
+      return formatUsd(crc / rate);
+    }
+    return formatMoney(crc);
+  }
+
+  /** Totales de Presupuesto/Ejecución: ₡ o $ (Oficial → ₡ agregados) */
+  function formatViewMoney(crcAmount) {
+    var crc = Number(crcAmount) || 0;
+    if (state.viewCurrency === 'USD') {
+      var rate = currentFxRate();
+      if (!(rate > 0)) return 'US$—';
+      return formatUsd(crc / rate);
+    }
+    return formatMoney(crc);
   }
 
   function chartUnitLabel() {
-    return state.chartCurrency === 'USD' ? '$' : '₡';
+    return state.summaryCurrency === 'USD' ? '$' : '₡';
   }
 
   function syncCurrencyToggles() {
-    document.querySelectorAll('[data-chart-cur]').forEach(function (btn) {
-      var cur = btn.getAttribute('data-chart-cur');
-      btn.classList.toggle('active', cur === state.chartCurrency);
+    document.querySelectorAll('[data-summary-cur]').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-summary-cur') === state.summaryCurrency);
+    });
+    document.querySelectorAll('[data-view-cur]').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-view-cur') === state.viewCurrency);
     });
   }
 
-  function setChartCurrency(cur) {
-    state.chartCurrency = cur === 'USD' ? 'USD' : 'CRC';
-    sessionStorage.setItem(CHART_CUR_KEY, state.chartCurrency);
+  function setSummaryCurrency(cur) {
+    state.summaryCurrency = cur === 'USD' ? 'USD' : 'CRC';
+    sessionStorage.setItem(SUMMARY_CUR_KEY, state.summaryCurrency);
     syncCurrencyToggles();
     if (state.budget) {
       renderResumenCharts();
+    }
+  }
+
+  function setViewCurrency(cur) {
+    if (cur === 'USD') state.viewCurrency = 'USD';
+    else if (cur === 'OFFICIAL') state.viewCurrency = 'OFFICIAL';
+    else state.viewCurrency = 'CRC';
+    sessionStorage.setItem(VIEW_CUR_KEY, state.viewCurrency);
+    syncCurrencyToggles();
+    if (state.budget) {
       renderPanelTotals();
-      // Misma moneda en cards/líneas de Presupuesto y Ejecución
       renderPlan();
       renderExecution();
     }
   }
 
   /**
-   * Monto de línea en la misma unidad que los totales (₡ o $ del toggle).
-   * Si la línea es USD, muestra también el original para no confundir.
+   * Badge = moneda oficial (digitada).
+   * Principal = toggle de Presupuesto/Ejecución (Oficial / ₡ / $).
+   * Paréntesis = la otra moneda.
    */
   function formatPlanLineDisplay(amount, currency, type) {
     var rate = currentFxRate();
-    var crc = toCrcLocal(amount, currency, rate);
-    var cur = normalizeCur(currency);
-    var main = '<span class="' + (type === 'income' ? 'amount--income' : 'amount--expense') + '">' +
-      formatChartMoney(crc) + '</span>';
-    if (cur === 'USD') {
-      if (!(rate > 0)) {
-        return '<span class="amount-with-cur">' + currencyBadge('USD') +
-          '<span class="amount--expense">Definí el TC</span></span>';
-      }
-      return '<span class="amount-with-cur">' + currencyBadge('USD') + main +
-        '<span class="plan-line-orig">(' + formatAmount(amount, 'USD') + ')</span></span>';
+    var official = normalizeCur(currency);
+    var n = Number(amount) || 0;
+    var crc = toCrcLocal(n, official, rate);
+    var mode = state.viewCurrency;
+    var amtCls = type === 'income' ? 'amount--income' : 'amount--expense';
+
+    if (!(rate > 0) && (official === 'USD' || mode === 'USD')) {
+      return '<span class="amount-with-cur">' + currencyBadge(official) +
+        '<span class="' + amtCls + '">Definí el TC</span></span>';
     }
-    return '<span class="amount-with-cur">' + currencyBadge('CRC') + main + '</span>';
+
+    var mainText;
+    var parenText;
+    if (mode === 'OFFICIAL') {
+      mainText = formatAmount(n, official);
+      if (!(rate > 0)) {
+        parenText = '—';
+      } else if (official === 'USD') {
+        parenText = formatMoney(crc);
+      } else {
+        parenText = formatUsd(crc / rate);
+      }
+    } else if (mode === 'USD') {
+      mainText = formatUsd(rate > 0 ? crc / rate : 0);
+      parenText = formatMoney(crc);
+    } else {
+      mainText = formatMoney(crc);
+      parenText = rate > 0 ? formatUsd(crc / rate) : 'US$—';
+    }
+
+    return '<span class="amount-with-cur" title="Oficial: ' + escapeHtml(formatAmount(n, official)) + '">' +
+      currencyBadge(official) +
+      '<span class="' + amtCls + '">' + mainText + '</span>' +
+      '<span class="plan-line-orig">(' + parenText + ')</span></span>';
   }
 
   function normalizeCur(currency) {
@@ -374,6 +424,12 @@
     if (!state.user) loadSessionUser();
     if (loginView) loginView.style.display = 'none';
     if (shell) shell.classList.add('active');
+    // Al entrar: Resumen en ₡; Presupuesto/Ejecución en Oficial
+    state.summaryCurrency = 'CRC';
+    state.viewCurrency = 'OFFICIAL';
+    sessionStorage.setItem(SUMMARY_CUR_KEY, 'CRC');
+    sessionStorage.setItem(VIEW_CUR_KEY, 'OFFICIAL');
+    syncCurrencyToggles();
     var label = document.getElementById('userLabel');
     if (label && state.user) {
       label.textContent = state.user.displayName || state.user.username;
@@ -512,10 +568,10 @@
       '<ul class="pie-legend">' + legend + '</ul>';
   }
 
-  function setBalanceCard(elId, valueCrc, labelId, positiveLabel, negativeLabel) {
+  function setBalanceCard(elId, valueCrc, labelId, positiveLabel, negativeLabel, useViewMoney) {
     var el = document.getElementById(elId);
     if (!el) return;
-    el.textContent = formatChartMoney(valueCrc);
+    el.textContent = useViewMoney ? formatViewMoney(valueCrc) : formatChartMoney(valueCrc);
     var card = el.closest('.stat-card');
     if (!card) return;
     card.classList.remove('stat-card--negative', 'stat-card--positive');
@@ -541,16 +597,15 @@
 
     var elPlanIn = document.getElementById('planStatIncome');
     var elPlanEx = document.getElementById('planStatExpense');
-    if (elPlanIn) elPlanIn.textContent = formatChartMoney(planInc);
-    if (elPlanEx) elPlanEx.textContent = formatChartMoney(planExp);
-    setBalanceCard('planStatBalance', planBal, 'planStatBalanceLbl', 'Margen', 'Sobregiro');
+    if (elPlanIn) elPlanIn.textContent = formatViewMoney(planInc);
+    if (elPlanEx) elPlanEx.textContent = formatViewMoney(planExp);
+    setBalanceCard('planStatBalance', planBal, 'planStatBalanceLbl', 'Margen', 'Sobregiro', true);
 
     var elExeIn = document.getElementById('exeStatIncome');
     var elExeEx = document.getElementById('exeStatExpense');
-    if (elExeIn) elExeIn.textContent = formatChartMoney(actInc);
-    if (elExeEx) elExeEx.textContent = formatChartMoney(actExp);
-    // Balance: verde si positivo, rojo si negativo; etiqueta fija
-    setBalanceCard('exeStatBalance', actBal);
+    if (elExeIn) elExeIn.textContent = formatViewMoney(actInc);
+    if (elExeEx) elExeEx.textContent = formatViewMoney(actExp);
+    setBalanceCard('exeStatBalance', actBal, null, null, null, true);
 
     syncCurrencyToggles();
   }
@@ -808,7 +863,7 @@
         '<div><h3>' + escapeHtml(c.name) + ' ' + typeBadge(c.type) + '</h3>' +
         (desc && !collapsed ? '<p class="cat-plan-card__meta">' + escapeHtml(desc) + '</p>' : '') +
         '<p class="cat-plan-card__stats cat-plan-card__stats--inline">' +
-        '<strong>Planeado:</strong> ' + formatChartMoney(plannedTotal) +
+        '<strong>Planeado:</strong> ' + formatViewMoney(plannedTotal) +
         (lines.length ? ' · ' + lines.length + (lines.length === 1 ? ' línea' : ' líneas') : '') +
         '</p></div></div>' +
         '<div class="loan-card__actions cat-plan-card__actions">' +
@@ -885,7 +940,7 @@
         '<td><strong>' + escapeHtml(ex.name || '') + '</strong>' +
         (ex.notes ? '<br><small>' + escapeHtml(ex.notes) + '</small>' : '') + '</td>' +
         '<td>' + typeBadge(ex.type) + '</td>' +
-        '<td>' + formatAmountWithBadge(ex.amount, ex.currency, ex.type) + '</td>' +
+        '<td>' + formatPlanLineDisplay(ex.amount, ex.currency, ex.type) + '</td>' +
         '<td>' + action + '</td></tr>';
     }).join('');
     tbody.querySelectorAll('[data-edit-exe]').forEach(function (btn) {
@@ -1074,9 +1129,9 @@
     }
     var st = categoryStatsCrc(sel.value);
     el.innerHTML =
-      '<strong>Presupuestado:</strong> ' + formatChartMoney(st.planned) +
-      ' · <strong>Ejecutado:</strong> ' + formatChartMoney(st.actual) +
-      ' · <strong>Restante:</strong> ' + formatChartMoney(st.remaining);
+      '<strong>Presupuestado:</strong> ' + formatViewMoney(st.planned) +
+      ' · <strong>Ejecutado:</strong> ' + formatViewMoney(st.actual) +
+      ' · <strong>Restante:</strong> ' + formatViewMoney(st.remaining);
   }
 
   function openExeModal(ex) {
@@ -1527,14 +1582,24 @@
   if (btnSaveProfile) btnSaveProfile.addEventListener('click', saveProfile);
   var btnSaveFx = document.getElementById('btnSaveFx');
   if (btnSaveFx) btnSaveFx.addEventListener('click', saveFxRate);
-  document.querySelectorAll('[data-chart-cur]').forEach(function (btn) {
+  document.querySelectorAll('[data-summary-cur]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var cur = btn.getAttribute('data-chart-cur');
+      var cur = btn.getAttribute('data-summary-cur');
       if (cur === 'USD' && !(currentFxRate() > 0)) {
         alert('Definí y guardá el tipo de cambio arriba para ver montos en dólares.');
         return;
       }
-      setChartCurrency(cur);
+      setSummaryCurrency(cur);
+    });
+  });
+  document.querySelectorAll('[data-view-cur]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var cur = btn.getAttribute('data-view-cur');
+      if (cur === 'USD' && !(currentFxRate() > 0)) {
+        alert('Definí y guardá el tipo de cambio arriba para ver montos en dólares.');
+        return;
+      }
+      setViewCurrency(cur);
     });
   });
   var btnCloseCycle = document.getElementById('btnCloseCycle');

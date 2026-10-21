@@ -6,7 +6,7 @@
   <!-- Yurguen: servicio oculto — no indexar -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Exha — Acceso</title>
-  <link rel="stylesheet" href="eh-mnt.css?v=57" />
+  <link rel="stylesheet" href="eh-mnt.css?v=59" />
 </head>
 <body>
   <section class="admin-login" id="adminLogin">
@@ -67,8 +67,8 @@
         <div class="resumen-toolbar">
           <span class="resumen-toolbar-label">Ver montos en</span>
           <div class="currency-toggle" role="group" aria-label="Moneda del resumen">
-            <button type="button" class="currency-toggle__btn active" data-chart-cur="CRC" id="btnChartCrc">₡ Colones</button>
-            <button type="button" class="currency-toggle__btn" data-chart-cur="USD" id="btnChartUsd">$ Dólares</button>
+            <button type="button" class="currency-toggle__btn active" data-summary-cur="CRC" id="btnChartCrc">₡ Colones</button>
+            <button type="button" class="currency-toggle__btn" data-summary-cur="USD" id="btnChartUsd">$ Dólares</button>
           </div>
         </div>
         <div class="admin-stats">
@@ -113,8 +113,9 @@
           <div class="resumen-toolbar">
             <span class="resumen-toolbar-label">Ver montos en</span>
             <div class="currency-toggle" role="group" aria-label="Moneda de ejecución">
-              <button type="button" class="currency-toggle__btn active" data-chart-cur="CRC">₡ Colones</button>
-              <button type="button" class="currency-toggle__btn" data-chart-cur="USD">$ Dólares</button>
+              <button type="button" class="currency-toggle__btn active" data-view-cur="OFFICIAL" title="Cada movimiento en la moneda en que lo digitaste">Oficial</button>
+              <button type="button" class="currency-toggle__btn" data-view-cur="CRC">₡ Colones</button>
+              <button type="button" class="currency-toggle__btn" data-view-cur="USD">$ Dólares</button>
             </div>
           </div>
           <div class="admin-stats-row admin-stats-row--panel admin-stats-row--exe">
@@ -146,8 +147,9 @@
           <div class="resumen-toolbar">
             <span class="resumen-toolbar-label">Ver montos en</span>
             <div class="currency-toggle" role="group" aria-label="Moneda del presupuesto">
-              <button type="button" class="currency-toggle__btn active" data-chart-cur="CRC">₡ Colones</button>
-              <button type="button" class="currency-toggle__btn" data-chart-cur="USD">$ Dólares</button>
+              <button type="button" class="currency-toggle__btn active" data-view-cur="OFFICIAL" title="Cada línea en la moneda en que la digitaste">Oficial</button>
+              <button type="button" class="currency-toggle__btn" data-view-cur="CRC">₡ Colones</button>
+              <button type="button" class="currency-toggle__btn" data-view-cur="USD">$ Dólares</button>
             </div>
           </div>
           <div class="admin-stats-row admin-stats-row--panel">
@@ -265,6 +267,6 @@
     </div>
   </div>
 
-  <script src="eh-mnt.js?v=68"></script>
+  <script src="eh-mnt.js?v=72"></script>
 </body>
 </html>

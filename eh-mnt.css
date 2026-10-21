@@ -521,9 +521,9 @@ body {
 .currency-toggle__btn {
   border: none;
   background: transparent;
-  padding: 8px 14px;
+  padding: 8px 12px;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--ink-soft, #5a6a6b);
   cursor: pointer;
