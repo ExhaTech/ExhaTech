@@ -86,7 +86,7 @@
 
   function formatUsd(n) {
     var num = Number(n) || 0;
-    return 'US$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
+    return '$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
   }
 
   /** Resumen: montos en ₡ o $ según summaryCurrency */
@@ -94,7 +94,7 @@
     var crc = Number(crcAmount) || 0;
     if (state.summaryCurrency === 'USD') {
       var rate = currentFxRate();
-      if (!(rate > 0)) return 'US$—';
+      if (!(rate > 0)) return '$—';
       return formatUsd(crc / rate);
     }
     return formatMoney(crc);
@@ -105,7 +105,7 @@
     var crc = Number(crcAmount) || 0;
     if (state.viewCurrency === 'USD') {
       var rate = currentFxRate();
-      if (!(rate > 0)) return 'US$—';
+      if (!(rate > 0)) return '$—';
       return formatUsd(crc / rate);
     }
     return formatMoney(crc);
@@ -180,7 +180,7 @@
       parenText = formatMoney(crc);
     } else {
       mainText = formatMoney(crc);
-      parenText = rate > 0 ? formatUsd(crc / rate) : 'US$—';
+      parenText = rate > 0 ? formatUsd(crc / rate) : '$—';
     }
 
     return '<span class="amount-with-cur" title="Oficial: ' + escapeHtml(formatAmount(n, official)) + '">' +
@@ -196,7 +196,7 @@
   function currencyBadge(currency) {
     var cur = normalizeCur(currency);
     if (cur === 'USD') {
-      return '<span class="cur-badge cur-badge--usd" title="Dólares">US$</span>';
+      return '<span class="cur-badge cur-badge--usd" title="Dólares">$</span>';
     }
     return '<span class="cur-badge cur-badge--crc" title="Colones">₡ CRC</span>';
   }
@@ -205,7 +205,7 @@
     var num = Number(amount) || 0;
     var cur = normalizeCur(currency);
     if (cur === 'USD') {
-      return 'US$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
+      return '$' + num.toLocaleString('es-CR', { maximumFractionDigits: 2 });
     }
     return formatMoney(num);
   }
@@ -1114,7 +1114,7 @@
     return '<div class="currency-field">' +
       '<select id="' + id + '" aria-label="Moneda">' +
       '<option value="CRC"' + (cur === 'CRC' ? ' selected' : '') + '>₡ Colones (CRC)</option>' +
-      '<option value="USD"' + (cur === 'USD' ? ' selected' : '') + '>US$ Dólares (USD)</option>' +
+      '<option value="USD"' + (cur === 'USD' ? ' selected' : '') + '>$ Dólares (USD)</option>' +
       '</select>' +
       '<p style="margin:6px 0 0;font-size:0.8rem;color:#7a8889">Si elegís USD, se convierte a ₡ con el tipo de cambio del ciclo.</p>' +
       '</div>';
