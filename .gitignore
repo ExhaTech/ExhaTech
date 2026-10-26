@@ -5,3 +5,6 @@ data/budget.master.local
 
 # data/budgets/*.json = cifrados AES → SÍ van a Git (respaldo)
 # La llave (budget.master.local / BUDGET_MASTER_KEY) NO va a Git
+
+# Bitácora: datos locales con PII → no van a Git
+data/foco/*.json

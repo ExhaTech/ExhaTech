@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Yurguen: Bitácora — no indexar -->
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Exha — Bitácora</title>
+  <link rel="stylesheet" href="/bitacora.css?v=11" />
+</head>
+<body>
+  <section class="foco-login" id="focoLogin">
+    <div class="foco-login-box">
+      <h1>Exha — Bitácora</h1>
+      <p>Gestión de seguimiento para administración de condominios. Capturá, priorizá y cerrá pendientes.</p>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="usernameInput">Usuario</label>
+          <input type="text" id="usernameInput" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="passwordInput">Contraseña</label>
+          <input type="password" id="passwordInput" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" id="loginBtn" style="width:100%;margin-top:8px">Entrar</button>
+        <p class="foco-msg error" id="loginError" role="alert"></p>
+      </form>
+      <a href="/" style="display:inline-block;margin-top:12px;font-size:0.85rem">← Volver al sitio</a>
+    </div>
+  </section>
+
+  <div class="foco-shell" id="focoShell">
+    <header class="foco-top">
+      <h1>Bitácora — <span id="userLabel"></span></h1>
+      <div class="foco-top-actions">
+        <span class="foco-badge" id="inboxBadge" title="En bandeja">0 bandeja</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
+      </div>
+    </header>
+
+    <nav class="foco-nav" aria-label="Secciones">
+      <button type="button" data-panel="captura">Captura</button>
+      <button type="button" class="active" data-panel="tablero">Tablero</button>
+      <button type="button" data-panel="caja">Caja</button>
+      <button type="button" data-panel="mantenimientos">Mantenimientos</button>
+    </nav>
+
+    <main class="foco-main foco-main--wide">
+      <p class="foco-msg error" id="apiError" hidden></p>
+
+      <section class="foco-panel" id="panel-captura">
+        <h2>Captura rápida</h2>
+        <p class="panel-hint">Pegá el correo, anotá la llamada o el mensaje. Cae en Bandeja; después lo movés en el tablero.</p>
+        <form id="captureForm" class="capture-form">
+          <div class="field">
+            <label for="capTitle">Título</label>
+            <input type="text" id="capTitle" required maxlength="160" placeholder="Ej. Fuga en torre B / Junta pide cotización" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="capSource">Origen</label>
+              <select id="capSource"></select>
+            </div>
+            <div class="field">
+              <label for="capCondo">Condominio</label>
+              <select id="capCondo">
+                <option value="">— Sin condominio —</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>Contactos</label>
+            <div id="capContacts" class="check-list"></div>
+          </div>
+          <div class="field">
+            <label for="capBody">Texto / notas</label>
+            <textarea id="capBody" rows="8" placeholder="Pegá acá el correo o lo que te dijeron…"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" id="capSubmit">Guardar en bandeja</button>
+        </form>
+      </section>
+
+      <section class="foco-panel active" id="panel-tablero">
+        <div class="panel-head">
+          <h2>Tablero</h2>
+        </div>
+        <div class="board-filters" id="boardFilters">
+          <input type="search" id="filterQ" placeholder="Buscar título o texto…" autocomplete="off" />
+          <select id="filterSource" aria-label="Filtrar por origen">
+            <option value="">Todos los orígenes</option>
+          </select>
+          <select id="filterCondo" aria-label="Filtrar por condominio">
+            <option value="">Todos los condominios</option>
+          </select>
+          <button type="button" class="btn btn-outline btn-sm" id="filterClear">Limpiar filtros</button>
+        </div>
+        <div class="kanban" id="kanbanBoard" aria-label="Tablero de seguimiento">
+          <div class="kanban-col" data-status="inbox">
+            <header class="kanban-col__head">
+              <h3>Bandeja</h3>
+              <span class="kanban-col__count" data-count="inbox">0</span>
+            </header>
+            <div class="kanban-col__cards" data-drop="inbox"></div>
+          </div>
+          <div class="kanban-col" data-status="hoy">
+            <header class="kanban-col__head">
+              <h3>Hoy</h3>
+              <span class="kanban-col__count" data-count="hoy">0</span>
+            </header>
+            <div class="kanban-col__cards" data-drop="hoy"></div>
+          </div>
+          <div class="kanban-col" data-status="esperando">
+            <header class="kanban-col__head">
+              <h3>Esperando</h3>
+              <span class="kanban-col__count" data-count="esperando">0</span>
+            </header>
+            <div class="kanban-col__cards" data-drop="esperando"></div>
+          </div>
+          <div class="kanban-col" data-status="despues">
+            <header class="kanban-col__head">
+              <h3>Después</h3>
+              <span class="kanban-col__count" data-count="despues">0</span>
+            </header>
+            <div class="kanban-col__cards" data-drop="despues"></div>
+          </div>
+          <div class="kanban-col" data-status="hecho">
+            <header class="kanban-col__head">
+              <h3>Hecho</h3>
+              <span class="kanban-col__count" data-count="hecho">0</span>
+            </header>
+            <div class="kanban-col__cards" data-drop="hecho"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="foco-panel" id="panel-caja">
+        <div class="panel-head">
+          <h2>Caja chica</h2>
+          <button type="button" class="btn btn-primary btn-sm" id="btnNewCajaMov">+ Egreso</button>
+        </div>
+        <p class="panel-hint">Solo egresos. Las formas de pago se administran en Mantenimientos. Exportá por rango de fechas.</p>
+        <div class="caja-summary" id="cajaSummary">
+          <div class="caja-saldo caja-saldo--out">
+            <span class="caja-saldo__label">Total egresos (filtro)</span>
+            <strong id="cajaEgresos">₡0</strong>
+          </div>
+        </div>
+        <div class="board-filters caja-filters" id="cajaFilters">
+          <label class="caja-date-field">Desde
+            <input type="date" id="cajaFilterDesde" />
+          </label>
+          <label class="caja-date-field">Hasta
+            <input type="date" id="cajaFilterHasta" />
+          </label>
+          <select id="cajaFilterForma" aria-label="Filtrar por forma de pago">
+            <option value="">Todas las formas de pago</option>
+          </select>
+          <select id="cajaFilterCondo" aria-label="Filtrar por condominio">
+            <option value="">Todos los condominios</option>
+          </select>
+          <button type="button" class="btn btn-outline btn-sm" id="cajaFilterClear">Limpiar filtros</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnCajaExport">Exportar CSV</button>
+        </div>
+        <div id="listCajaMovs" class="caja-list"></div>
+      </section>
+
+      <section class="foco-panel" id="panel-mantenimientos">
+        <div class="panel-head">
+          <h2>Mantenimientos</h2>
+        </div>
+        <nav class="maint-tabs" aria-label="Catálogos">
+          <button type="button" class="maint-tab active" data-maint="condominios">Condominios</button>
+          <button type="button" class="maint-tab" data-maint="origenes">Orígenes</button>
+          <button type="button" class="maint-tab" data-maint="roles">Roles</button>
+          <button type="button" class="maint-tab" data-maint="contactos">Contactos</button>
+          <button type="button" class="maint-tab" data-maint="formasPago">Formas de pago</button>
+        </nav>
+
+        <div class="maint-section active" id="maint-condominios">
+          <div class="panel-head">
+            <h3>Condominios</h3>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewCondo">+ Condominio</button>
+          </div>
+          <div id="listCondos" class="condo-list"></div>
+        </div>
+
+        <div class="maint-section" id="maint-origenes">
+          <div class="panel-head">
+            <h3>Orígenes</h3>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewOrigen">+ Origen</button>
+          </div>
+          <div id="listOrigenes" class="condo-list"></div>
+        </div>
+
+        <div class="maint-section" id="maint-roles">
+          <div class="panel-head">
+            <h3>Roles</h3>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewRole">+ Rol</button>
+          </div>
+          <div id="listRoles" class="condo-list"></div>
+        </div>
+
+        <div class="maint-section" id="maint-contactos">
+          <div class="panel-head">
+            <h3>Contactos</h3>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewContact">+ Contacto</button>
+          </div>
+          <div id="listContacts" class="condo-list"></div>
+        </div>
+
+        <div class="maint-section" id="maint-formasPago">
+          <div class="panel-head">
+            <h3>Formas de pago</h3>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewFormaPago">+ Forma de pago</button>
+          </div>
+          <div id="listFormasPago" class="condo-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Modal</h3>
+      <div id="modalBody"></div>
+      <p class="foco-msg error" id="modalError" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="modalCancel">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="modalDelete" hidden>Eliminar</button>
+        <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/bitacora.js?v=11"></script>
+</body>
+</html>

@@ -59,8 +59,12 @@ npm start
 ```
 
 ```bash
-# http://localhost:8080  —  panel: http://localhost:8080/eh-mnt.html (5 clics en badge del footer)
+# http://localhost:8080
+# Contabilidad → http://localhost:8080/contabilidad
+# Bitácora → http://localhost:8080/bitacora
 ```
+
+**Bitácora:** seguimiento para administración de condominios (captura → tablero kanban). Página **Mantenimientos**: Condominios, Orígenes y Contactos. Las tareas admiten uno o más contactos. Mismo login que Contabilidad; datos en `data/foco/` (locales, no van a Git).
 
 ## 📞 Contacto (placeholders)
 

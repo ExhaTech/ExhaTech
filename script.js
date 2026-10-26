@@ -55,7 +55,7 @@
       badgeTimer = setTimeout(function () { badgeClicks = 0; }, 2500);
       if (badgeClicks >= 5) {
         badgeClicks = 0;
-        window.location.href = 'eh-mnt.html';
+        window.location.href = '/contabilidad';
       }
     });
   }

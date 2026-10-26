@@ -1,4 +1,4 @@
-/* Yurguen: presupuesto familiar — gráficos, catálogos, plan, ejecución, histórico */
+/* Yurguen: Contabilidad — gráficos, catálogos, plan, ejecución, histórico */
 (function () {
   'use strict';
 
@@ -757,7 +757,7 @@
         ? movs.map(function (m) {
             var signCls = Number(m.sign) === -1 ? 'loan-sign--minus' : 'loan-sign--plus';
             var signTxt = Number(m.sign) === -1 ? '−' : '+';
-            return '<tr>' +
+      return '<tr>' +
               '<td>' + escapeHtml(m.date || '') + '</td>' +
               '<td class="' + signCls + '">' + signTxt + '</td>' +
               '<td>' + formatAmountWithBadge(m.amount, m.currency, Number(m.sign) === -1 ? 'expense' : 'income') + '</td>' +
@@ -1487,8 +1487,8 @@
     } else {
       if (!username || password.length < 6) {
         alert('Usuario y contraseña (mín. 6) obligatorios.');
-        return;
-      }
+      return;
+    }
       api('users.create', {
         username: username,
         password: password,
@@ -1630,13 +1630,13 @@
       .catch(function () {
         showLogin();
         if (location.protocol === 'file:') {
-          showLoginError('Abrí http://localhost:8080/eh-mnt.html (no el archivo directo).');
+          showLoginError('Abrí http://localhost:8080/contabilidad (no el archivo directo).');
         }
       });
   } else {
     showLogin();
     if (location.protocol === 'file:') {
-      showLoginError('Abrí http://localhost:8080/eh-mnt.html (no el archivo directo).');
+      showLoginError('Abrí http://localhost:8080/contabilidad (no el archivo directo).');
     }
   }
 })();

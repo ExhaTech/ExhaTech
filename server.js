@@ -8,12 +8,20 @@ const path = require('path');
 const crypto = require('crypto');
 const usersAuth = require('./lib/users-auth');
 let budgetStore = require('./lib/budget-store');
+let focoStore = require('./lib/foco-store');
 
 /** Dev: recarga budget-store (Node cachea el require y dejaba la lógica vieja del fin del ciclo) */
 function reloadBudgetStore() {
   delete require.cache[require.resolve('./lib/budget-store')];
   budgetStore = require('./lib/budget-store');
   return budgetStore;
+}
+
+/** Dev: recarga foco-store (mismas acciones nuevas: saveRole, moveCatalog, etc.) */
+function reloadFocoStore() {
+  delete require.cache[require.resolve('./lib/foco-store')];
+  focoStore = require('./lib/foco-store');
+  return focoStore;
 }
 
 const PORT = process.env.PORT || 8080;
@@ -1070,7 +1078,259 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  let filePath = path.join(ROOT, url.pathname === '/' ? 'index.html' : url.pathname);
+  // ---- Yurguen: Bitácora (API /api/foco; URL pública /bitacora) ----
+  if (url.pathname === '/api/foco') {
+    reloadFocoStore();
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Session-Token',
+      });
+      res.end();
+      return;
+    }
+    if (req.method !== 'POST') {
+      send(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    let body = {};
+    try {
+      body = await readBody(req);
+    } catch {
+      send(res, 400, { error: 'invalid body' });
+      return;
+    }
+    const action = body.action;
+
+    try {
+      if (action === 'get') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'saveCondo') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const condo = focoStore.saveCondo(ctx.user.id, body);
+        send(res, 200, { ok: true, condo, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'deleteCondo') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de condominio obligatorio' });
+          return;
+        }
+        focoStore.deleteCondo(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'saveOrigen') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const origen = focoStore.saveOrigen(ctx.user.id, body);
+        send(res, 200, { ok: true, origen, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'deleteOrigen') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de origen obligatorio' });
+          return;
+        }
+        focoStore.deleteOrigen(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'saveRole') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const role = focoStore.saveRole(ctx.user.id, body);
+        send(res, 200, { ok: true, role, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'deleteRole') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de rol obligatorio' });
+          return;
+        }
+        focoStore.deleteRole(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'saveFormaPago') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const formaPago = focoStore.saveFormaPago(ctx.user.id, body);
+        send(res, 200, { ok: true, formaPago, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'deleteFormaPago') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de forma de pago obligatorio' });
+          return;
+        }
+        focoStore.deleteFormaPago(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'saveCajaMov') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const movimiento = focoStore.saveCajaMov(ctx.user.id, body);
+        send(res, 200, { ok: true, movimiento, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'deleteCajaMov') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de movimiento obligatorio' });
+          return;
+        }
+        focoStore.deleteCajaMov(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'saveContact') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const contact = focoStore.saveContact(ctx.user.id, body);
+        send(res, 200, { ok: true, contact, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'moveCatalog') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.list || !body.id || !body.direction) {
+          send(res, 400, { error: 'list, id y direction obligatorios' });
+          return;
+        }
+        const data = focoStore.moveCatalog(ctx.user.id, body);
+        send(res, 200, { ok: true, data });
+        return;
+      }
+      if (action === 'deleteContact') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de contacto obligatorio' });
+          return;
+        }
+        focoStore.deleteContact(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'createItem') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        const item = focoStore.createItem(ctx.user.id, body);
+        send(res, 200, { ok: true, item, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'updateItem') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de ítem obligatorio' });
+          return;
+        }
+        const item = focoStore.updateItem(ctx.user.id, body);
+        send(res, 200, { ok: true, item, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'moveItem') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id || !body.status) {
+          send(res, 400, { error: 'Id y status obligatorios' });
+          return;
+        }
+        const moved = focoStore.moveItem(ctx.user.id, body);
+        send(res, 200, {
+          ok: true,
+          item: moved.item,
+          clearedWait: moved.clearedWait || null,
+          data: focoStore.getSnapshot(ctx.user.id),
+        });
+        return;
+      }
+      if (action === 'toggleAction') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id || !body.actionId) {
+          send(res, 400, { error: 'Id de ítem y de acción obligatorios' });
+          return;
+        }
+        const item = focoStore.toggleAction(ctx.user.id, body);
+        send(res, 200, { ok: true, item, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      if (action === 'deleteItem') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de ítem obligatorio' });
+          return;
+        }
+        focoStore.deleteItem(ctx.user.id, body.id);
+        send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
+        return;
+      }
+      console.warn('Bitácora: acción desconocida →', action);
+      send(res, 400, { error: 'Acción no reconocida: ' + String(action || '') + '. Reiniciá el server (node server.js).' });
+    } catch (e) {
+      const msg = e.message || 'Error en Bitácora';
+      const client = /obligatorio|encontrado|siguiente acción|Esperando|Después|fecha|existe|origen|rol|cuenta|forma|caja|monto|Debe quedar|Catálogo|Dirección|inválid/i.test(msg);
+      send(res, client ? 400 : 500, { error: msg });
+    }
+    return;
+  }
+
+  // URLs públicas: /contabilidad y /bitacora
+  const cleanPath = url.pathname.replace(/\/+$/, '') || '/';
+  if (cleanPath === '/foco') {
+    res.writeHead(302, { Location: '/bitacora' });
+    res.end();
+    return;
+  }
+  const blockedLegacy = [
+    '/eh-mnt',
+    '/eh-mnt.html',
+    '/eh-mnt.js',
+    '/eh-mnt.css',
+    '/presupuesto',
+    '/presupuesto.html',
+  ];
+  if (blockedLegacy.includes(cleanPath)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not found. Usá /contabilidad');
+    return;
+  }
+  // Contabilidad: eh-mnt.*; Bitácora: foco.* (archivos internos)
+  let servePath = url.pathname === '/' ? 'index.html' : url.pathname;
+  if (cleanPath === '/contabilidad') {
+    servePath = 'eh-mnt.html';
+  } else if (cleanPath === '/contabilidad.js') {
+    servePath = 'eh-mnt.js';
+  } else if (cleanPath === '/contabilidad.css') {
+    servePath = 'eh-mnt.css';
+  } else if (cleanPath === '/bitacora') {
+    servePath = 'foco.html';
+  } else if (cleanPath === '/bitacora.js') {
+    servePath = 'foco.js';
+  } else if (cleanPath === '/bitacora.css') {
+    servePath = 'foco.css';
+  }
+
+  let filePath = path.join(ROOT, servePath);
   if (!filePath.startsWith(ROOT)) {
     res.writeHead(403);
     res.end();
@@ -1097,10 +1357,17 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   ensureUsersFile();
   reloadBudgetStore();
+  reloadFocoStore();
+  // One-shot: FOCO_RESET=1 node server.js → limpia Bitácora y deja catálogos default
+  if (process.env.FOCO_RESET === '1') {
+    const n = focoStore.wipeAllToDefaults();
+    console.log('Bitácora: reset de', n, 'archivo(s) → mantenimientos por defecto.');
+  }
   // Smoke test: día inicio 22 desde 1/10 → fin 21/10 (nunca el 22)
   const probe = budgetStore.resolveCutEndDate('2026-10-01', 22, '2026-10-20');
   console.log(`ExhaTech → http://localhost:${PORT}`);
-  console.log(`Presupuesto → http://localhost:${PORT}/eh-mnt.html`);
+  console.log(`Contabilidad → http://localhost:${PORT}/contabilidad`);
+  console.log(`Bitácora → http://localhost:${PORT}/bitacora`);
   console.log('Yurguen: usuarios en data/users.local.json (hashes, no va a Git).');
   console.log('Login → admin (admin) | yurguen_hernandez (user) — clave Gunner00');
   console.log('Check ciclo: inicio 22 desde 01/10 → fin', probe, probe === '2026-10-21' ? 'OK' : 'FALLÓ');
