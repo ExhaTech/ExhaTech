@@ -40,9 +40,26 @@ ExhaTech/
 
 ## 🚀 Cómo verlo
 
-**Sitio público:** GitHub Pages (solo HTML/CSS/JS).
+**Sitio + Contabilidad + Bitácora (Cloudflare Workers):** ver [docs/DEPLOY-CLOUDFLARE.md](docs/DEPLOY-CLOUDFLARE.md).
 
-**Panel de cobros (vos y tu socio):** solo en cada PC con `npm start` (localhost, sin PHP).
+```bash
+npm install
+npm run cf:prepare   # arma ./public
+npm run cf:dev       # local Workers (API aún parcial)
+# producción: npm run cf:deploy  (DevOps)
+```
+
+**Local legacy (Node + JSON en disco):**
+
+```bash
+npm start
+# http://localhost:8080/contabilidad
+# http://localhost:8080/bitacora
+```
+
+**Sitio público histórico:** GitHub Pages (solo HTML/CSS/JS) — migrar apex al Worker.
+
+**Panel de cobros (legacy):** solo en cada PC con `npm start` (localhost).
 
 ### Sincronizar los dos (mismo archivo de cobros)
 

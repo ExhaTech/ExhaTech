@@ -8,3 +8,13 @@ data/budget.master.local
 
 # Bitácora: datos locales con PII → no van a Git
 data/foco/*.json
+
+# Cloudflare Workers
+node_modules/
+.wrangler/
+.dev.vars
+.mf/
+dist/
+public/*
+!public/.gitkeep
+!public/.assetsignore

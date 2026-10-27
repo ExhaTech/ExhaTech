@@ -1288,7 +1288,7 @@ const server = http.createServer(async (req, res) => {
       send(res, 400, { error: 'Acción no reconocida: ' + String(action || '') + '. Reiniciá el server (node server.js).' });
     } catch (e) {
       const msg = e.message || 'Error en Bitácora';
-      const client = /obligatorio|encontrado|siguiente acción|Esperando|Después|fecha|existe|origen|rol|cuenta|forma|caja|monto|Debe quedar|Catálogo|Dirección|inválid/i.test(msg);
+      const client = /obligatorio|encontrado|siguiente acción|Esperando|Después|fecha|existe|origen|rol|cuenta|forma|caja|monto|Máximo|Debe quedar|Catálogo|Dirección|inválid/i.test(msg);
       send(res, client ? 400 : 500, { error: msg });
     }
     return;

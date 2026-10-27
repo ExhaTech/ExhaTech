@@ -6,7 +6,7 @@
   <!-- Yurguen: Bitácora — no indexar -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Exha — Bitácora</title>
-  <link rel="stylesheet" href="/bitacora.css?v=11" />
+  <link rel="stylesheet" href="/bitacora.css?v=13" />
 </head>
 <body>
   <section class="foco-login" id="focoLogin">
@@ -92,6 +92,10 @@
           <select id="filterCondo" aria-label="Filtrar por condominio">
             <option value="">Todos los condominios</option>
           </select>
+          <label class="board-toggle" title="Colorea las tarjetas según el condominio">
+            <input type="checkbox" id="toggleCondoColors" checked />
+            <span>Colores de condo</span>
+          </label>
           <button type="button" class="btn btn-outline btn-sm" id="filterClear">Limpiar filtros</button>
         </div>
         <div class="kanban" id="kanbanBoard" aria-label="Tablero de seguimiento">
@@ -178,9 +182,10 @@
 
         <div class="maint-section active" id="maint-condominios">
           <div class="panel-head">
-            <h3>Condominios</h3>
+            <h3>Condominios <span class="panel-count" id="condoCount"></span></h3>
             <button type="button" class="btn btn-primary btn-sm" id="btnNewCondo">+ Condominio</button>
           </div>
+          <p class="panel-hint" style="margin-top:0">Máximo 11. Colores pastel para distinguirlos en el tablero.</p>
           <div id="listCondos" class="condo-list"></div>
         </div>
 
@@ -232,6 +237,6 @@
     </div>
   </div>
 
-  <script src="/bitacora.js?v=11"></script>
+  <script src="/bitacora.js?v=13"></script>
 </body>
 </html>

@@ -2,6 +2,14 @@
   "name": "exhatech-site",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "cf:prepare": "node scripts/prepare-cf-assets.mjs",
+    "cf:dev": "npm run cf:prepare && wrangler dev",
+    "cf:deploy": "npm run cf:prepare && wrangler deploy",
+    "cf:deploy:dry": "npm run cf:prepare && wrangler deploy --dry-run",
+    "cf:types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.45.0"
   }
 }

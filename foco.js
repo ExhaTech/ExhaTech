@@ -4,6 +4,7 @@
 
   var TOKEN_KEY = 'exha_bitacora_token';
   var USER_KEY = 'exha_bitacora_user';
+  var CONDO_COLORS_KEY = 'exha_bitacora_show_condo_colors';
   var AUTH_API = '/api/eh-data';
   var FOCO_API = '/api/foco';
 
@@ -13,6 +14,15 @@
     { status: 'esperando', label: 'Esperando' },
     { status: 'despues', label: 'Después' },
     { status: 'hecho', label: 'Hecho' }
+  ];
+
+  var MAX_CONDOMINIOS = 11;
+
+  /** Paleta pastel (hasta 11 condominios). */
+  var CONDO_COLOR_PRESETS = [
+    '#a8dadc', '#ffc8dd', '#bde0fe', '#caffbf', '#ffd6a5',
+    '#e2cfea', '#f1c0e8', '#fdffb6', '#d0f4de', '#cddafd',
+    '#fde2e4'
   ];
 
   var state = {
@@ -31,7 +41,8 @@
     pendingMove: null,
     dragItemId: null,
     filters: { q: '', source: '', condoId: '' },
-    cajaFilters: { desde: '', hasta: '', formaPagoId: '', condoId: '' }
+    cajaFilters: { desde: '', hasta: '', formaPagoId: '', condoId: '' },
+    showCondoColors: true
   };
 
   var loginView = document.getElementById('focoLogin');
@@ -275,6 +286,52 @@
     return c ? c.name : '';
   }
 
+  function condoById(id) {
+    if (!id) return null;
+    return state.data.condominios.find(function (x) { return x.id === id; }) || null;
+  }
+
+  function condoColor(id) {
+    var c = condoById(id);
+    return c && c.color ? String(c.color) : '';
+  }
+
+  function normalizeHexColor(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return '';
+    if (s.charAt(0) !== '#') s = '#' + s;
+    if (!/^#[0-9a-fA-F]{6}$/.test(s)) return '';
+    return s.toLowerCase();
+  }
+
+  function loadCondoColorPref() {
+    try {
+      var v = localStorage.getItem(CONDO_COLORS_KEY);
+      if (v === null || v === undefined || v === '') {
+        state.showCondoColors = true;
+        return;
+      }
+      state.showCondoColors = v === '1' || v === 'true';
+    } catch (e) {
+      state.showCondoColors = true;
+    }
+  }
+
+  function saveCondoColorPref(on) {
+    state.showCondoColors = !!on;
+    try {
+      localStorage.setItem(CONDO_COLORS_KEY, state.showCondoColors ? '1' : '0');
+    } catch (e) { /* ignore */ }
+  }
+
+  function syncCondoColorToggleUi() {
+    var el = document.getElementById('toggleCondoColors');
+    if (el) el.checked = !!state.showCondoColors;
+    if (kanbanBoard) {
+      kanbanBoard.classList.toggle('kanban--condo-colors', !!state.showCondoColors);
+    }
+  }
+
   function contactName(id) {
     if (!id) return '';
     var c = state.data.contactos.find(function (c) { return c.id === id; });
@@ -445,7 +502,17 @@
       '<span class="k-card__source">' + escapeHtml(origenName(it.source)) + '</span>'
     ];
     var cn = condoName(it.condoId);
-    if (cn) meta.push('<span>' + escapeHtml(cn) + '</span>');
+    var color = condoColor(it.condoId);
+    if (cn) {
+      meta.push(
+        '<span class="k-card__condo">' +
+          (color
+            ? '<i class="k-card__condo-dot" style="background:' + escapeHtml(color) + '" aria-hidden="true"></i>'
+            : '') +
+          escapeHtml(cn) +
+        '</span>'
+      );
+    }
     var cts = itemContactIds(it).map(contactName).filter(Boolean);
     if (cts.length) meta.push('<span>' + escapeHtml(cts.join(', ')) + '</span>');
 
@@ -493,8 +560,11 @@
       ? '<p class="k-card__body">' + escapeHtml(it.body.length > 140 ? it.body.slice(0, 140) + '…' : it.body) + '</p>'
       : '';
 
+    var colorAttr = color ? ' data-condo-color="' + escapeHtml(color) + '" style="--condo-color:' + escapeHtml(color) + '"' : '';
+
     return (
-      '<article class="k-card" draggable="true" data-id="' + escapeHtml(it.id) + '" data-status="' + escapeHtml(it.status) + '">' +
+      '<article class="k-card' + (color ? ' k-card--condo-color' : '') + '" draggable="true" data-id="' +
+        escapeHtml(it.id) + '" data-status="' + escapeHtml(it.status) + '"' + colorAttr + '>' +
         '<div class="k-card__meta">' + meta.join('') + '</div>' +
         '<h4 class="k-card__title">' + escapeHtml(it.title) + '</h4>' +
         actionHtml +
@@ -510,6 +580,7 @@
   }
 
   function renderKanban() {
+    syncCondoColorToggleUi();
     COLUMNS.forEach(function (col) {
       var zone = document.querySelector('[data-drop="' + col.status + '"]');
       var countEl = document.querySelector('[data-count="' + col.status + '"]');
@@ -565,14 +636,26 @@
     var el = document.getElementById('listCondos');
     if (!el) return;
     var list = sortedCatalog(state.data.condominios);
+    var countEl = document.getElementById('condoCount');
+    if (countEl) countEl.textContent = '(' + list.length + '/' + MAX_CONDOMINIOS + ')';
+    var btnNew = document.getElementById('btnNewCondo');
+    if (btnNew) {
+      btnNew.disabled = list.length >= MAX_CONDOMINIOS;
+      btnNew.title = list.length >= MAX_CONDOMINIOS
+        ? 'Máximo ' + MAX_CONDOMINIOS + ' condominios'
+        : 'Nuevo condominio';
+    }
     if (!list.length) {
       el.innerHTML = '<p class="empty-state">No hay condominios. Agregá el primero.</p>';
       return;
     }
     el.innerHTML = list.map(function (c, i) {
+      var swatch = c.color
+        ? '<span class="condo-swatch" style="background:' + escapeHtml(c.color) + '" title="' + escapeHtml(c.color) + '"></span>'
+        : '';
       return (
         '<div class="condo-card">' +
-          '<div><h3>' + escapeHtml(c.name) + '</h3>' +
+          '<div><h3>' + swatch + escapeHtml(c.name) + '</h3>' +
           (c.notes ? '<p>' + escapeHtml(c.notes) + '</p>' : '') +
           '</div>' +
           '<div class="condo-card__actions">' +
@@ -859,12 +942,59 @@
   function openCondoModal(condo) {
     state.modalMode = 'condo';
     state.modalId = condo ? condo.id : null;
+    var color = condo && condo.color ? normalizeHexColor(condo.color) : '';
+    var presets = CONDO_COLOR_PRESETS.map(function (hex) {
+      return (
+        '<button type="button" class="color-preset' + (color === hex ? ' is-active' : '') + '" data-condo-preset="' +
+        escapeHtml(hex) + '" style="background:' + escapeHtml(hex) + '" title="' + escapeHtml(hex) + '" aria-label="Color ' +
+        escapeHtml(hex) + '"></button>'
+      );
+    }).join('');
     openModal(
       condo ? 'Editar condominio' : 'Nuevo condominio',
       '<div class="field"><label>Nombre</label><input type="text" id="mCondoName" value="' + escapeHtml(condo ? condo.name : '') + '" required /></div>' +
+      '<div class="field"><label>Color en el tablero</label>' +
+        '<div class="condo-color-row">' +
+          '<input type="color" id="mCondoColor" value="' + escapeHtml(color || CONDO_COLOR_PRESETS[0]) + '" />' +
+          '<label class="check-inline"><input type="checkbox" id="mCondoColorClear"' + (color ? '' : ' checked') + ' /> Sin color</label>' +
+        '</div>' +
+        '<div class="color-presets" id="mCondoPresets">' + presets + '</div>' +
+        '<p class="field-hint">Se usa en el kanban si activás “Colores de condo”.</p>' +
+      '</div>' +
       '<div class="field"><label>Notas</label><textarea id="mCondoNotes" rows="3">' + escapeHtml(condo ? condo.notes : '') + '</textarea></div>',
       { showDelete: !!condo }
     );
+    var colorInput = document.getElementById('mCondoColor');
+    var clearChk = document.getElementById('mCondoColorClear');
+    var presetsEl = document.getElementById('mCondoPresets');
+    function markPreset(activeHex) {
+      if (!presetsEl) return;
+      presetsEl.querySelectorAll('.color-preset').forEach(function (btn) {
+        btn.classList.toggle('is-active', btn.getAttribute('data-condo-preset') === activeHex);
+      });
+    }
+    if (colorInput) {
+      colorInput.addEventListener('input', function () {
+        if (clearChk) clearChk.checked = false;
+        markPreset(normalizeHexColor(colorInput.value));
+      });
+    }
+    if (clearChk) {
+      clearChk.addEventListener('change', function () {
+        if (clearChk.checked) markPreset('');
+      });
+    }
+    if (presetsEl) {
+      presetsEl.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!(t instanceof Element)) return;
+        var hex = t.getAttribute('data-condo-preset');
+        if (!hex || !colorInput) return;
+        colorInput.value = hex;
+        if (clearChk) clearChk.checked = false;
+        markPreset(hex);
+      });
+    }
   }
 
   function openContactModal(contact) {
@@ -1231,7 +1361,15 @@
   });
 
   var btnNewCondo = document.getElementById('btnNewCondo');
-  if (btnNewCondo) btnNewCondo.addEventListener('click', function () { openCondoModal(null); });
+  if (btnNewCondo) {
+    btnNewCondo.addEventListener('click', function () {
+      if ((state.data.condominios || []).length >= MAX_CONDOMINIOS) {
+        showApiError('Máximo ' + MAX_CONDOMINIOS + ' condominios');
+        return;
+      }
+      openCondoModal(null);
+    });
+  }
   var btnNewOrigen = document.getElementById('btnNewOrigen');
   if (btnNewOrigen) btnNewOrigen.addEventListener('click', function () { openOrigenModal(null); });
   var btnNewRole = document.getElementById('btnNewRole');
@@ -1273,6 +1411,7 @@
   var filterSource = document.getElementById('filterSource');
   var filterCondo = document.getElementById('filterCondo');
   var filterClear = document.getElementById('filterClear');
+  var toggleCondoColors = document.getElementById('toggleCondoColors');
   if (filterQ) filterQ.addEventListener('input', syncFiltersFromUi);
   if (filterSource) filterSource.addEventListener('change', syncFiltersFromUi);
   if (filterCondo) filterCondo.addEventListener('change', syncFiltersFromUi);
@@ -1282,6 +1421,13 @@
       if (filterSource) filterSource.value = '';
       if (filterCondo) filterCondo.value = '';
       syncFiltersFromUi();
+    });
+  }
+  if (toggleCondoColors) {
+    toggleCondoColors.addEventListener('change', function () {
+      saveCondoColorPref(toggleCondoColors.checked);
+      syncCondoColorToggleUi();
+      renderKanban();
     });
   }
 
@@ -1506,10 +1652,17 @@
     if (state.modalMode === 'condo') {
       var name = document.getElementById('mCondoName').value.trim();
       if (!name) return;
+      var clearColor = document.getElementById('mCondoColorClear');
+      var colorEl = document.getElementById('mCondoColor');
+      var colorVal = '';
+      if (!(clearColor && clearColor.checked) && colorEl) {
+        colorVal = normalizeHexColor(colorEl.value);
+      }
       focoApi('saveCondo', {
         id: state.modalId || undefined,
         name: name,
-        notes: document.getElementById('mCondoNotes').value
+        notes: document.getElementById('mCondoNotes').value,
+        color: colorVal || null
       })
         .then(function (res) {
           applyData(res.data);
@@ -1708,6 +1861,9 @@
   });
 
   bindDropZones();
+
+  loadCondoColorPref();
+  syncCondoColorToggleUi();
 
   if (getToken() && loadSessionUser()) {
     authApi('me')

@@ -405,6 +405,97 @@ body {
   cursor: grab;
   touch-action: none;
   border: 1px solid rgba(25, 114, 120, 0.08);
+  border-left: 4px solid transparent;
+}
+.kanban--condo-colors .k-card--condo-color {
+  border-left-color: var(--condo-color, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--condo-color) 14%, #fff) 0%,
+    #fff 28%
+  );
+}
+.k-card__condo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.k-card__condo-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.board-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  user-select: none;
+  white-space: nowrap;
+}
+.board-toggle input {
+  accent-color: var(--teal, #197278);
+}
+.condo-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+.condo-color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.condo-color-row input[type="color"] {
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(25, 114, 120, 0.25);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.color-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.color-preset {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.color-preset.is-active {
+  border-color: var(--ink, #1a1a1a);
+  box-shadow: 0 0 0 2px #fff inset;
+}
+.field-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.panel-count {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 .k-card:active { cursor: grabbing; }
 .k-card.is-dragging {
@@ -693,6 +784,11 @@ body {
 .order-btns {
   display: inline-flex;
   gap: 2px;
+}
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .order-btns .btn[disabled] {
   opacity: 0.35;

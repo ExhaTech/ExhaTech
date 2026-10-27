@@ -1,0 +1,5 @@
+# Copiar a .dev.vars (NO va a Git) para `wrangler dev`
+# Generar: openssl rand -base64 48
+
+SESSION_SECRET=change-me-session-secret-min-32-chars
+DATA_ENCRYPTION_KEY=change-me-32-byte-key-base64-or-hex

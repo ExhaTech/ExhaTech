@@ -1,0 +1,61 @@
+/**
+ * Yurguen / DevOps: Worker único — sitio + Contabilidad + Bitácora + APIs.
+ * Secrets NUNCA van acá: usar `wrangler secret put` o `.dev.vars` (local).
+ *
+ * Antes del primer deploy:
+ *   1) npm run cf:prepare
+ *   2) wrangler d1 create exhatech-db  → pegar database_id abajo
+ *   3) wrangler r2 bucket create exhatech-data
+ *   4) wrangler secret put SESSION_SECRET
+ *   5) wrangler secret put DATA_ENCRYPTION_KEY   (AES para JSON sensibles)
+ *      opcional: wrangler secret put SEED_ADMIN_PASSWORD
+ *   6) wrangler d1 migrations apply exhatech-db --remote
+ *   7) npm run cf:deploy
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "exhatech",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "APP_NAME": "ExhaTech",
+    "ENVIRONMENT": "production"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "exhatech-db",
+      // DevOps: reemplazar tras `wrangler d1 create exhatech-db`
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DATA",
+      "bucket_name": "exhatech-data"
+      // Objetos por usuario: budgets/{userId}.json, foco/{userId}.json
+    }
+  ]
+  // Secrets (no declarar valores aquí):
+  //   SESSION_SECRET          — firmar / hashear tokens de sesión
+  //   DATA_ENCRYPTION_KEY     — mismo rol que data/budget.master.local; cifra JSON en R2
+  //   BUDGET_MASTER_KEY       — compat opcional si ya usás ese nombre en CI/secret store
+  //   SEED_ADMIN_PASSWORD     — opcional; crea admin una vez si D1 arranca vacío
+}
