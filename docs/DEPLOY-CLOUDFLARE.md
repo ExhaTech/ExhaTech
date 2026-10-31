@@ -76,6 +76,36 @@ Dry-run (empaquetado sin publicar):
 npm run cf:deploy:dry
 ```
 
+## CI — publicación automática (push a `main`)
+
+Cada push a `main` corre [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml):
+
+1. `npm ci` + `npm run cf:prepare`
+2. `wrangler deploy`
+
+Las migraciones D1 **no** van en CI (el token de Workers suele no incluir D1). Aplíquelas a mano cuando haya cambios en `migrations/`:
+
+```bash
+npx wrangler d1 migrations apply exhatech-db --remote
+```
+
+### Secrets de GitHub (una sola vez)
+
+En el repo → **Settings → Secrets and variables → Actions**, crear:
+
+| Secret | Valor |
+|--------|--------|
+| `CLOUDFLARE_ACCOUNT_ID` | Account ID de Cloudflare |
+| `CLOUDFLARE_API_TOKEN` | Token con permiso **Edit Cloudflare Workers** |
+
+Crear token: [Account API tokens](https://dash.cloudflare.com/?to=/:account/api-tokens) → Create Token → plantilla **Edit Cloudflare Workers**.
+
+Los secrets del Worker (`SESSION_SECRET`, `DATA_ENCRYPTION_KEY`, etc.) **no** van en GitHub Actions: se configuran una vez con `wrangler secret put` (o Dashboard → Worker → Settings → Variables).
+
+### Probar sin esperar un push
+
+En GitHub → **Actions → Deploy Worker → Run workflow**.
+
 ## Dominio custom
 
 En Dashboard → Workers → `exhatech` → Settings → Domains:

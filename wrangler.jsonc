@@ -42,7 +42,7 @@
       "binding": "DB",
       "database_name": "exhatech-db",
       // DevOps: reemplazar tras `wrangler d1 create exhatech-db`
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "523ca9f9-20f9-4b1e-b248-144d43eee5a8",
       "migrations_dir": "migrations"
     }
   ],
