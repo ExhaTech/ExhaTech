@@ -6,7 +6,8 @@
   var USER_KEY = 'exha_budget_user';
   var SUMMARY_CUR_KEY = 'exha_budget_summary_cur';
   var VIEW_CUR_KEY = 'exha_budget_view_cur';
-  var API = 'api/eh-data.php';
+  // Absoluto: si la URL es /contabilidad/ (con slash), un path relativo pega en HTML 404.
+  var API = '/api/eh-data';
 
   var state = {
     user: null,
@@ -382,6 +383,26 @@
     return base;
   }
 
+  /** Acepta 1500.50, 1500,50, 1.500,50 o 1,500.50 */
+  function parseMoneyInput(raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    if (!s) return NaN;
+    s = s.replace(/\s/g, '');
+    var hasComma = s.indexOf(',') >= 0;
+    var hasDot = s.indexOf('.') >= 0;
+    if (hasComma && hasDot) {
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else {
+        s = s.replace(/,/g, '');
+      }
+    } else if (hasComma) {
+      s = s.replace(',', '.');
+    }
+    var n = Number(s);
+    return isNaN(n) ? NaN : n;
+  }
+
   function api(action, body) {
     var payload = Object.assign({ action: action }, body || {});
     var headers = { 'Content-Type': 'application/json' };
@@ -392,7 +413,17 @@
       headers: headers,
       body: JSON.stringify(payload)
     }).then(function (res) {
-      return res.json().then(function (json) {
+      return res.text().then(function (text) {
+        var json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch (e) {
+          var errHtml = new Error(
+            'El servidor respondió HTML en vez de JSON (¿ruta API?). Probá recargar.'
+          );
+          errHtml.status = res.status;
+          throw errHtml;
+        }
         if (!res.ok) {
           var err = new Error((json && json.error) || ('HTTP ' + res.status));
           err.status = res.status;
@@ -1359,10 +1390,10 @@
       var planTagEl = document.getElementById('mPlanTag') || document.getElementById('mPlanLabel');
       var planCat = planCatEl ? planCatEl.value : '';
       var planRaw = planAmtEl ? planAmtEl.value.trim() : '';
-      var planAmt = Number(planRaw);
+      var planAmt = parseMoneyInput(planRaw);
       var planTag = planTagEl ? String(planTagEl.value || '').trim() : '';
       if (!planCat || planRaw === '' || isNaN(planAmt)) {
-        alert('Categoría y monto obligatorios.');
+        alert('Categoría y monto obligatorios. Usá punto o coma para decimales.');
         return;
       }
       api('budget.plan.save', {
@@ -1394,9 +1425,9 @@
     }
     if (state.modalMode === 'loan-mov') {
       var amountRaw = document.getElementById('mLoanAmount').value.trim();
-      var amount = Number(amountRaw);
+      var amount = parseMoneyInput(amountRaw);
       if (amountRaw === '' || isNaN(amount) || amount < 0) {
-        alert('Monto obligatorio.');
+        alert('Monto obligatorio. Usá punto o coma para decimales.');
         return;
       }
       api('budget.loan.movement.save', {
@@ -1415,9 +1446,9 @@
     if (state.modalMode === 'execution') {
       var exeCat = document.getElementById('mExeCat').value;
       var amountRaw = document.getElementById('mExeAmount').value.trim();
-      var amount = Number(amountRaw);
+      var amount = parseMoneyInput(amountRaw);
       if (!exeCat || amountRaw === '' || isNaN(amount)) {
-        alert('Categoría y monto obligatorios.');
+        alert('Categoría y monto obligatorios. Usá punto o coma para decimales.');
         return;
       }
       api('budget.execution.save', {
@@ -1530,9 +1561,9 @@
       return;
     }
     var raw = document.getElementById('fxRateInput').value.trim();
-    var rate = Number(raw);
+    var rate = parseMoneyInput(raw);
     if (raw === '' || isNaN(rate) || rate < 0) {
-      alert('Tipo de cambio inválido.');
+      alert('Tipo de cambio inválido. Usá punto o coma para decimales.');
       return;
     }
     api('budget.period.update', {
