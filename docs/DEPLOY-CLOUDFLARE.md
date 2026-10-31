@@ -81,8 +81,13 @@ npm run cf:deploy:dry
 Cada push a `main` corre [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml):
 
 1. `npm ci` + `npm run cf:prepare`
-2. `wrangler d1 migrations apply exhatech-db --remote`
-3. `wrangler deploy`
+2. `wrangler deploy`
+
+Las migraciones D1 **no** van en CI (el token de Workers suele no incluir D1). Aplíquelas a mano cuando haya cambios en `migrations/`:
+
+```bash
+npx wrangler d1 migrations apply exhatech-db --remote
+```
 
 ### Secrets de GitHub (una sola vez)
 
