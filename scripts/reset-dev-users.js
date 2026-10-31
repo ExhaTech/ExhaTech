@@ -1,7 +1,7 @@
 /**
  * Yurguen: reset local de cuentas (desarrollo).
  * Uso: node scripts/reset-dev-users.js
- * Crea admin + yurguen (user), borra budgets.
+ * Crea admin (solo gestión) + yurguen (user, ambos módulos). Borra budgets.
  */
 const fs = require('fs');
 const path = require('path');
@@ -21,32 +21,49 @@ function wipeBudgets() {
   });
 }
 
-function makeUser(username, displayName, role, password) {
-  const cred = usersAuth.hashPassword(password);
-  return {
+function makeUser(opts) {
+  const cred = usersAuth.hashPassword(opts.password);
+  const u = {
     id: usersAuth.uid(),
-    username,
-    displayName,
-    role,
+    username: opts.username,
+    displayName: opts.displayName,
+    role: opts.role,
     active: true,
+    email: usersAuth.normalizeEmail(opts.email || ''),
+    phone: usersAuth.normalizePhone(opts.phone || ''),
+    modules: usersAuth.normalizeModules(opts.modules, opts.role),
     billingDayStart: 1,
     passwordSalt: cred.salt,
     passwordHash: cred.hash,
     createdAt: new Date().toISOString(),
   };
+  return usersAuth.normalizeUserRecord(u);
 }
 
 wipeBudgets();
 const store = {
-  seedVersion: 4,
+  seedVersion: 5,
   users: [
-    makeUser('admin', 'Admin', 'admin', 'Gunner00'),
-    makeUser('yurguen', 'Yurguen', 'user', 'Gunner00'),
+    makeUser({
+      username: 'admin',
+      displayName: 'Admin',
+      role: 'admin',
+      password: 'Gunner00',
+      email: 'admin@exhatech.com',
+    }),
+    makeUser({
+      username: 'yurguen',
+      displayName: 'Yurguen',
+      role: 'user',
+      password: 'Gunner00',
+      email: 'yurguen@exhatech.com',
+      modules: { contabilidad: true, bitacora: true },
+    }),
   ],
 };
 fs.mkdirSync(path.dirname(USERS_FILE), { recursive: true });
 fs.writeFileSync(USERS_FILE, JSON.stringify(store, null, 2), 'utf8');
-console.log('OK — cuentas reseteadas:');
-console.log('  admin   → admin / Gunner00');
-console.log('  user    → yurguen / Gunner00');
+console.log('OK — cuentas reseteadas (seed v5):');
+console.log('  admin   → solo gestión de usuarios / Gunner00');
+console.log('  user    → yurguen (Contabilidad+Bitácora) / Gunner00');
 console.log('Budgets borrados.');

@@ -1,5 +1,5 @@
 {
-  "seedVersion": 4,
+  "seedVersion": 5,
   "users": [
     {
       "id": "u_admin_seed",
@@ -7,7 +7,12 @@
       "displayName": "Admin",
       "role": "admin",
       "active": true,
+      "email": "admin@exhatech.com",
+      "phone": "",
+      "modules": { "contabilidad": false, "bitacora": false },
       "billingDayStart": 1,
+      "loginCount": 0,
+      "lastLoginAt": null,
       "passwordSalt": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
       "passwordHash": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
       "createdAt": "2026-01-01T00:00:00.000Z"
@@ -18,7 +23,12 @@
       "displayName": "Yurguen",
       "role": "user",
       "active": true,
+      "email": "yurguen@exhatech.com",
+      "phone": "",
+      "modules": { "contabilidad": true, "bitacora": true },
       "billingDayStart": 1,
+      "loginCount": 0,
+      "lastLoginAt": null,
       "passwordSalt": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
       "passwordHash": "SE_GENERA_AL_ARRANCAR_EL_SERVER",
       "createdAt": "2026-01-01T00:00:00.000Z"

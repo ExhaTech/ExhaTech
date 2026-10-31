@@ -198,7 +198,7 @@
     if (cur === 'USD') {
       return '<span class="cur-badge cur-badge--usd" title="Dólares">$</span>';
     }
-    return '<span class="cur-badge cur-badge--crc" title="Colones">₡ CRC</span>';
+    return '<span class="cur-badge cur-badge--crc" title="Colones">₡</span>';
   }
 
   function formatAmount(amount, currency) {
@@ -420,11 +420,57 @@
     if (shell) shell.classList.remove('active');
   }
 
-  function showShell() {
+  function isAdminUser() {
+    return !!(state.user && state.user.role === 'admin');
+  }
+
+  function userHasModule(name) {
+    if (!state.user || isAdminUser()) return false;
+    var m = state.user.modules || {};
+    return !!m[name];
+  }
+
+  function applyShellMode() {
+    var admin = isAdminUser();
+    var hasConta = userHasModule('contabilidad');
+    if (shell) shell.classList.toggle('is-admin-only', admin);
+    // Slots AdSense: visibles solo para usuarios (no admin)
+    document.querySelectorAll('.ad-slot').forEach(function (slot) {
+      slot.hidden = admin;
+    });
+    var fxBar = document.getElementById('fxBar');
+    if (fxBar) fxBar.hidden = admin || !hasConta;
+    var cycleSelect = document.getElementById('cycleSelect');
+    if (cycleSelect && cycleSelect.closest('.top-field')) {
+      cycleSelect.closest('.top-field').hidden = admin || !hasConta;
+    }
+    var navUsers = document.getElementById('navUsuarios');
+    if (navUsers) navUsers.hidden = !admin;
+    document.querySelectorAll('.admin-nav [data-panel]').forEach(function (btn) {
+      var panel = btn.getAttribute('data-panel');
+      if (panel === 'usuarios') {
+        btn.hidden = !admin;
+        return;
+      }
+      if (panel === 'cuenta') {
+        btn.hidden = false;
+        return;
+      }
+      btn.hidden = admin || !hasConta;
+    });
+    var billingWrap = document.getElementById('billingFieldWrap');
+    if (billingWrap) billingWrap.hidden = admin || !hasConta;
+    var phoneEl = document.getElementById('myPhone');
+    if (phoneEl && state.user) phoneEl.value = state.user.phone || '';
+    var dayInput = document.getElementById('myBillingDay');
+    if (dayInput && state.user) dayInput.value = state.user.billingDayStart || 1;
+  }
+
+  function showShell(opts) {
+    opts = opts || {};
     if (!state.user) loadSessionUser();
     if (loginView) loginView.style.display = 'none';
     if (shell) shell.classList.add('active');
-    // Al entrar: Resumen en ₡; Presupuesto/Ejecución en Oficial
     state.summaryCurrency = 'CRC';
     state.viewCurrency = 'OFFICIAL';
     sessionStorage.setItem(SUMMARY_CUR_KEY, 'CRC');
@@ -434,15 +480,33 @@
     if (label && state.user) {
       label.textContent = state.user.displayName || state.user.username;
     }
-    var navUsers = document.getElementById('navUsuarios');
-    if (navUsers) navUsers.hidden = !(state.user && state.user.role === 'admin');
-    var dayInput = document.getElementById('myBillingDay');
-    if (dayInput && state.user) {
-      dayInput.value = state.user.billingDayStart || 1;
-    }
+    applyShellMode();
     showApiError('');
+    var purgeEl = document.getElementById('purgeNotice');
+    if (purgeEl) {
+      if (opts.purgedInactive && opts.purgedInactive.length) {
+        purgeEl.hidden = false;
+        purgeEl.textContent =
+          'Limpieza por inactividad (>31 días): se borraron datos de ' +
+          opts.purgedInactive.map(function (p) { return p.username; }).join(', ') +
+          '. Las cuentas siguen activas.';
+      } else {
+        purgeEl.hidden = true;
+        purgeEl.textContent = '';
+      }
+    }
+    if (isAdminUser()) {
+      switchPanel('usuarios');
+      loadUsers();
+      return;
+    }
+    if (!userHasModule('contabilidad')) {
+      switchPanel('cuenta');
+      showApiError('No tenés Contabilidad activa. Pedile al admin o usá Bitácora si la tenés.');
+      return;
+    }
+    api('track.module', { module: 'contabilidad' }).catch(function () {});
     loadBudget();
-    if (state.user && state.user.role === 'admin') loadUsers();
   }
 
   function doLogin() {
@@ -466,7 +530,7 @@
         }
         setSession(res.token, res.user);
         showLoginError('');
-        showShell();
+        showShell({ purgedInactive: res.purgedInactive || [] });
       })
       .catch(function (err) {
         showLoginError(err.message || 'No se pudo conectar');
@@ -506,10 +570,11 @@
   }
 
 
-  /* Yurguen: tonos rojizos — el pastel es solo egresos */
+  /* Yurguen: colores bien separados (egresos por categoría) */
   var PIE_COLORS = [
-    '#b42318', '#d9480f', '#c92a2a', '#e8590c', '#a61e4d',
-    '#fa5252', '#f08c00', '#862e9c', '#c2255c', '#e67700'
+    '#c92a2a', '#1c7ed6', '#2f9e44', '#e8590c', '#9c36b5',
+    '#0c8599', '#e67700', '#5c7cfa', '#c2255c', '#087f5b',
+    '#7048e8', '#f08c00'
   ];
 
   var VBAR_MAX_PX = 160;
@@ -536,35 +601,134 @@
     }).join('');
   }
 
+  /** Normaliza filas del pastel (tolera server viejo donde value era el bucket). */
+  function normalizePieRows(raw) {
+    return (raw || []).map(function (r) {
+      var planned = Number(r.planned);
+      var actual = Number(r.actual != null ? r.actual : r.value);
+      if (r.value && typeof r.value === 'object') {
+        planned = Number(r.value.planned) || 0;
+        actual = Number(r.value.actual) || 0;
+      }
+      if (isNaN(planned)) planned = 0;
+      if (isNaN(actual)) actual = 0;
+      return {
+        id: r.id,
+        label: r.label || 'Otra',
+        planned: planned,
+        actual: actual,
+        value: actual
+      };
+    }).filter(function (r) {
+      return r.actual > 0 || r.planned > 0;
+    });
+  }
+
+  /** Fallback: armar pastel desde plan + ejecución del periodo en el cliente. */
+  function buildPieRowsFromPeriod(b) {
+    var period = b && b.period;
+    if (!period) return [];
+    var rate = currentFxRate();
+    var buckets = {};
+    function ensure(id, label) {
+      if (!buckets[id]) buckets[id] = { id: id, label: label, planned: 0, actual: 0, value: 0 };
+      return buckets[id];
+    }
+    (period.budget || []).forEach(function (line) {
+      var cat = catById(line.categoryId);
+      if (!cat || cat.type === 'income') return;
+      var id = line.categoryId || 'none';
+      var row = ensure(id, cat.name || 'Otra');
+      row.planned += toCrcLocal(line.planned, line.currency, rate);
+    });
+    (period.executions || []).forEach(function (ex) {
+      var cat = catById(ex.categoryId);
+      var type = (cat && cat.type) || ex.type || 'expense';
+      if (type === 'income') return;
+      var id = ex.categoryId || 'none';
+      var label = cat ? cat.name : (id === 'none' ? 'Sin categoría' : 'Otra');
+      var row = ensure(id, label);
+      row.actual += toCrcLocal(ex.amount, ex.currency, rate);
+    });
+    return Object.keys(buckets).map(function (k) {
+      var row = buckets[k];
+      row.value = row.actual;
+      return row;
+    }).filter(function (r) {
+      return r.actual > 0 || r.planned > 0;
+    }).sort(function (a, b) {
+      return b.actual - a.actual || b.planned - a.planned;
+    });
+  }
+
   function renderPieChart(el, rows) {
     if (!el) return;
     if (!rows || !rows.length) {
       el.innerHTML = '<p class="empty-state" style="margin:0">Sin gastos por categoría aún.</p>';
       return;
     }
-    var total = rows.reduce(function (s, r) { return s + (Number(r.value) || 0); }, 0);
-    if (!(total > 0)) {
-      el.innerHTML = '<p class="empty-state" style="margin:0">Sin gastos por categoría aún.</p>';
+    // Pastel = participación del ejecutado en el total de egresos
+    var totalActual = rows.reduce(function (s, r) {
+      return s + (Number(r.actual) || 0);
+    }, 0);
+    var sliceRows = rows.filter(function (r) {
+      return (Number(r.actual) || 0) > 0;
+    });
+    if (!(totalActual > 0) || !sliceRows.length) {
+      el.innerHTML = '<p class="empty-state" style="margin:0">Sin egresos ejecutados por categoría aún.</p>';
       return;
     }
     var acc = 0;
     var stops = [];
-    rows.forEach(function (r, i) {
-      var v = Number(r.value) || 0;
+    var labelHtml = '';
+    sliceRows.forEach(function (r, i) {
+      var v = Number(r.actual) || 0;
       var start = acc;
-      acc += (v / total) * 360;
-      stops.push(PIE_COLORS[i % PIE_COLORS.length] + ' ' + start.toFixed(2) + 'deg ' + acc.toFixed(2) + 'deg');
+      var sweep = (v / totalActual) * 360;
+      acc += sweep;
+      var color = PIE_COLORS[i % PIE_COLORS.length];
+      stops.push(color + ' ' + start.toFixed(2) + 'deg ' + acc.toFixed(2) + 'deg');
+      var pctTotal = Math.round((v / totalActual) * 100);
+      // Etiqueta % del total sobre el pastel (solo si el trozo es legible)
+      if (pctTotal >= 4) {
+        var mid = start + sweep / 2;
+        var rad = (mid - 90) * Math.PI / 180;
+        var dist = 34;
+        var left = 50 + Math.cos(rad) * dist;
+        var top = 50 + Math.sin(rad) * dist;
+        labelHtml +=
+          '<span class="pie-slice-pct" style="left:' + left.toFixed(1) + '%;top:' + top.toFixed(1) + '%">' +
+          pctTotal + '%</span>';
+      }
     });
-    var legend = rows.map(function (r, i) {
-      var v = Number(r.value) || 0;
-      var pct = Math.round((v / total) * 100);
-      return '<li>' +
-        '<span class="pie-swatch" style="background:' + PIE_COLORS[i % PIE_COLORS.length] + '"></span>' +
-        '<span>' + escapeHtml(r.label) + ' (' + pct + '%)</span>' +
-        '<span class="pie-amt">' + formatChartMoney(v) + '</span></li>';
+    var colorById = {};
+    sliceRows.forEach(function (r, i) {
+      colorById[r.id || r.label] = PIE_COLORS[i % PIE_COLORS.length];
+    });
+    // Leyenda limpia: montos + solo % del presupuesto de esa categoría
+    var legend = rows.map(function (r) {
+      var actual = Number(r.actual) || 0;
+      var planned = Number(r.planned) || 0;
+      var pctSelf = planned > 0 ? Math.round((actual / planned) * 100) : null;
+      var color = colorById[r.id || r.label] || '#adb5bd';
+      var selfBadge = pctSelf == null
+        ? ''
+        : ' <span class="pie-legend__self" title="% de su presupuesto">' + pctSelf + '%</span>';
+      return '<li class="pie-legend__item">' +
+        '<span class="pie-swatch" style="background:' + color + '"></span>' +
+        '<div class="pie-legend__body">' +
+          '<div class="pie-legend__title">' + escapeHtml(r.label) + selfBadge + '</div>' +
+          '<div class="pie-legend__meta">' +
+            formatChartMoney(actual) +
+            (planned > 0 ? ' / ' + formatChartMoney(planned) : '') +
+          '</div>' +
+        '</div></li>';
     }).join('');
     el.innerHTML =
-      '<div class="pie-disc" style="background:conic-gradient(' + stops.join(', ') + ')" role="img" aria-label="Gastos por categoría"></div>' +
+      '<div class="pie-disc-wrap">' +
+        '<div class="pie-disc" style="background:conic-gradient(' + stops.join(', ') + ')" role="img" aria-label="Gastos por categoría"></div>' +
+        labelHtml +
+      '</div>' +
       '<ul class="pie-legend">' + legend + '</ul>';
   }
 
@@ -630,7 +794,10 @@
     var subPie = document.getElementById('chartPieSub');
     if (subIn) subIn.textContent = 'Presupuestado vs ejecutado (' + unit + ')';
     if (subEx) subEx.textContent = 'Presupuestado vs ejecutado (' + unit + ')';
-    if (subPie) subPie.textContent = 'Distribución de egresos ejecutados (' + unit + ')';
+    if (subPie) {
+      subPie.textContent =
+        'En el pastel: % del total · En la lista: ejecutado / presupuestado y % del plan (' + unit + ')';
+    }
 
     renderVerticalBars(document.getElementById('chartIncome'), [
       { value: s.plannedIncome || 0, series: 'planned', shortLabel: 'Presupuestado' },
@@ -640,9 +807,8 @@
       { value: s.plannedExpense || 0, series: 'planned', shortLabel: 'Presupuestado' },
       { value: s.actualExpense || 0, series: 'actual', shortLabel: 'Ejecutado' }
     ], 'expense');
-    var pieRows = ((b.charts && b.charts.byCategory) || []).filter(function (r) {
-      return Number(r.value) > 0;
-    });
+    var pieRows = normalizePieRows((b.charts && b.charts.byCategory) || []);
+    if (!pieRows.length) pieRows = buildPieRowsFromPeriod(b);
     renderPieChart(document.getElementById('chartByCategory'), pieRows);
 
     syncCurrencyToggles();
@@ -1310,28 +1476,34 @@
   }
 
   function saveProfile() {
-    var day = Number(document.getElementById('myBillingDay').value) || 1;
-    var prev = (state.user && state.user.billingDayStart) || 1;
-    if (day !== prev) {
-      var ok = confirm(
-        'Vas a cambiar el día de inicio de ' + prev + ' a ' + day + '.\n\n' +
-        'Ese día es cuando arranca cada ciclo (ej. 1 = del 1 al fin de mes).\n' +
-        'El inicio del periodo actual no cambia; se recalcula el FIN\n' +
-        '(día anterior al próximo inicio). No puede quedar antes de hoy.\n' +
-        'Los periodos cerrados no se tocan.\n\n' +
-        '¿Confirmás el cambio?'
-      );
-      if (!ok) {
-        document.getElementById('myBillingDay').value = prev;
-        return;
+    var phoneEl = document.getElementById('myPhone');
+    var phone = phoneEl ? phoneEl.value.trim() : '';
+    var payload = { phone: phone };
+    if (userHasModule('contabilidad')) {
+      var day = Number(document.getElementById('myBillingDay').value) || 1;
+      var prev = (state.user && state.user.billingDayStart) || 1;
+      if (day !== prev) {
+        var ok = confirm(
+          'Vas a cambiar el día de inicio de ' + prev + ' a ' + day + '.\n\n' +
+          'Ese día es cuando arranca cada ciclo (ej. 1 = del 1 al fin de mes).\n' +
+          'El inicio del periodo actual no cambia; se recalcula el FIN\n' +
+          '(día anterior al próximo inicio). No puede quedar antes de hoy.\n' +
+          'Los periodos cerrados no se tocan.\n\n' +
+          '¿Confirmás el cambio?'
+        );
+        if (!ok) {
+          document.getElementById('myBillingDay').value = prev;
+          return;
+        }
       }
+      payload.billingDayStart = day;
     }
-    // Siempre sincroniza fin del periodo abierto con el día de inicio
-    api('profile.update', { billingDayStart: day })
+    api('profile.update', payload)
       .then(function (res) {
         setSession(getToken(), res.user);
         var dayInput = document.getElementById('myBillingDay');
         if (dayInput) dayInput.value = res.user.billingDayStart || 1;
+        if (phoneEl) phoneEl.value = res.user.phone || '';
         if (res.period && state.budget && state.budget.period && res.period.key === state.budget.period.key) {
           state.budget.period.startDate = res.period.startDate;
           state.budget.period.endDate = res.period.endDate;
@@ -1340,7 +1512,7 @@
             state.budget.cycle.endDate = res.period.endDate;
           }
         }
-        return loadBudget();
+        if (userHasModule('contabilidad')) return loadBudget();
       })
       .catch(function (err) { alert(err.message || 'No se pudo guardar'); });
   }
@@ -1399,7 +1571,8 @@
       'Tipo de cambio: 1 $ = ₡' + (rate > 0 ? rate.toLocaleString('es-CR') : '—') + '\n\n' +
       'Se congela tal cual está (TC, fechas, presupuesto y ejecución).\n' +
       'Después NO se puede cambiar nunca.\n' +
-      'Se abre el siguiente ciclo.\n\n' +
+      'Se abre el siguiente ciclo con las mismas líneas de presupuesto\n' +
+      '(la ejecución arranca vacía).\n\n' +
       '¿Confirmás el cierre?'
     );
     if (!ok) return;
@@ -1430,11 +1603,23 @@
     tbody.innerHTML = state.users.map(function (u) {
       var st = u.active !== false ? 'Activo' : 'Inactivo';
       var badge = u.active !== false ? 'badge-paid' : 'badge-overdue';
+      var mods = u.role === 'admin'
+        ? '—'
+        : [
+            (u.modules && u.modules.contabilidad) ? 'Conta' : null,
+            (u.modules && u.modules.bitacora) ? 'Bitácora' : null
+          ].filter(Boolean).join(', ') || 'Ninguno';
       return '<tr>' +
-        '<td><strong>' + escapeHtml(u.username) + '</strong></td>' +
-        '<td>' + escapeHtml(u.displayName || '') + '</td>' +
-        '<td>' + escapeHtml(u.role) + '</td>' +
-        '<td>Día ' + (u.billingDayStart || 1) + '</td>' +
+        '<td><strong>' + escapeHtml(u.username) + '</strong><div class="panel-hint" style="margin:0">' +
+          escapeHtml(u.displayName || '') + '</div></td>' +
+        '<td>' + escapeHtml(u.email || '—') +
+          (u.phone ? '<div class="panel-hint" style="margin:0">' + escapeHtml(u.phone) + '</div>' : '') +
+        '</td>' +
+        '<td>' + escapeHtml(mods) + '</td>' +
+        '<td>' + (Number(u.loginCount) || 0) +
+          (u.lastLoginAt ? '<div class="panel-hint" style="margin:0">' +
+            escapeHtml(String(u.lastLoginAt).slice(0, 10)) + '</div>' : '') +
+        '</td>' +
         '<td><span class="badge-status ' + badge + '">' + st + '</span></td>' +
         '<td><button type="button" class="btn btn-outline btn-sm" data-edit-user="' + u.id + '">Editar</button></td></tr>';
     }).join('');
@@ -1449,35 +1634,77 @@
   function openUserModal(user) {
     var u = user || {};
     var isEdit = !!user;
-    // Yurguen: el día de inicio lo decide cada usuario en Mi cuenta
+    var mods = u.modules || { contabilidad: true, bitacora: true };
+    var isAdminRole = u.role === 'admin';
     openModal(
       isEdit ? 'Editar usuario' : 'Nuevo usuario',
       '<div class="field"><label>Usuario *</label><input id="mUsername" value="' + escapeHtml(u.username || '') + '" ' + (isEdit ? 'disabled' : '') + '></div>' +
       '<div class="field"><label>Nombre</label><input id="mDisplayName" value="' + escapeHtml(u.displayName || '') + '"></div>' +
+      '<div class="field"><label>Correo *</label><input id="mEmail" type="email" value="' + escapeHtml(u.email || '') + '"></div>' +
+      '<div class="field"><label>WhatsApp</label><input id="mPhone" type="tel" value="' + escapeHtml(u.phone || '') + '" placeholder="+506…"></div>' +
       '<div class="field"><label>Rol</label><select id="mRole">' +
-      '<option value="user"' + (u.role !== 'admin' ? ' selected' : '') + '>Usuario</option>' +
-      '<option value="admin"' + (u.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div>' +
+      '<option value="user"' + (!isAdminRole ? ' selected' : '') + '>Usuario</option>' +
+      '<option value="admin"' + (isAdminRole ? ' selected' : '') + '>Admin (solo gestión)</option></select></div>' +
+      '<div class="field" id="mModulesWrap">' +
+        '<label>Módulos</label>' +
+        '<label class="check-inline"><input type="checkbox" id="mModConta"' + (mods.contabilidad !== false ? ' checked' : '') + '> Contabilidad</label> ' +
+        '<label class="check-inline"><input type="checkbox" id="mModFoco"' + (mods.bitacora !== false ? ' checked' : '') + '> Bitácora</label>' +
+      '</div>' +
       (isEdit
-        ? '<p style="font-size:0.85rem;color:#7a8889">Día de inicio: ' + (u.billingDayStart || 1) + ' (lo cambia él en Mi cuenta).</p>' +
+        ? '<p class="panel-hint">Logins: ' + (Number(u.loginCount) || 0) +
+          (u.lastLoginAt ? ' · Último: ' + escapeHtml(String(u.lastLoginAt).slice(0, 16).replace('T', ' ')) : '') +
+          '</p>' +
           '<div class="field"><label>Contraseña nueva <small>(vacío = no cambiar)</small></label><input id="mPassword" type="password" autocomplete="new-password"></div>' +
+          '<button type="button" class="btn btn-outline btn-sm" id="btnTempPass" style="margin-bottom:10px">Generar clave temporal</button>' +
           '<div class="field"><label><input type="checkbox" id="mActive" ' + (u.active !== false ? 'checked' : '') + '> Activo</label></div>'
         : '<div class="field"><label>Contraseña *</label><input id="mPassword" type="password" autocomplete="new-password"></div>'),
       'user',
       u.id || null,
       isEdit && !(state.user && state.user.id === u.id)
     );
+    var roleSel = document.getElementById('mRole');
+    var modsWrap = document.getElementById('mModulesWrap');
+    function syncModVisibility() {
+      if (modsWrap) modsWrap.style.display = roleSel && roleSel.value === 'admin' ? 'none' : '';
+    }
+    if (roleSel) roleSel.addEventListener('change', syncModVisibility);
+    syncModVisibility();
+    var btnTemp = document.getElementById('btnTempPass');
+    if (btnTemp && u.id) {
+      btnTemp.addEventListener('click', function () {
+        if (!confirm('¿Generar clave temporal? La actual deja de servir. Copiala ahora (aún no hay correo).')) return;
+        api('users.issueTempPassword', { id: u.id })
+          .then(function (res) {
+            alert(
+              'Clave temporal (copiá ahora):\n\n' + res.tempPassword +
+              '\n\n' + (res.hint || '')
+            );
+            return loadUsers();
+          })
+          .catch(function (err) { alert(err.message || 'No se pudo generar'); });
+      });
+    }
   }
 
   function saveUserModal() {
     var username = document.getElementById('mUsername').value.trim().toLowerCase();
     var displayName = document.getElementById('mDisplayName').value.trim();
+    var email = document.getElementById('mEmail').value.trim();
+    var phone = document.getElementById('mPhone').value.trim();
     var role = document.getElementById('mRole').value;
     var password = document.getElementById('mPassword').value;
+    var modules = {
+      contabilidad: !!(document.getElementById('mModConta') && document.getElementById('mModConta').checked),
+      bitacora: !!(document.getElementById('mModFoco') && document.getElementById('mModFoco').checked)
+    };
     if (state.modalId) {
       var payload = {
         id: state.modalId,
         displayName: displayName,
+        email: email,
+        phone: phone,
         role: role,
+        modules: modules,
         active: document.getElementById('mActive').checked
       };
       if (password) payload.newPassword = password;
@@ -1487,13 +1714,20 @@
     } else {
       if (!username || password.length < 6) {
         alert('Usuario y contraseña (mín. 6) obligatorios.');
-      return;
-    }
+        return;
+      }
+      if (role !== 'admin' && !email) {
+        alert('Correo obligatorio para usuarios.');
+        return;
+      }
       api('users.create', {
         username: username,
         password: password,
         displayName: displayName || username,
+        email: email,
+        phone: phone,
         role: role,
+        modules: modules,
         billingDayStart: 1
       })
         .then(function () { closeModal(); return loadUsers(); })
@@ -1545,6 +1779,75 @@
     loginForm.addEventListener('submit', function (e) {
       e.preventDefault();
       doLogin();
+    });
+  }
+
+  function showRegisterError(msg) {
+    var el = document.getElementById('registerError');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.display = msg ? 'block' : 'none';
+  }
+
+  function toggleAuthForms(showRegister) {
+    if (loginForm) loginForm.hidden = !!showRegister;
+    var reg = document.getElementById('registerForm');
+    if (reg) reg.hidden = !showRegister;
+    var btnReg = document.getElementById('btnShowRegister');
+    if (btnReg) btnReg.hidden = !!showRegister;
+  }
+
+  var btnShowRegister = document.getElementById('btnShowRegister');
+  if (btnShowRegister) {
+    btnShowRegister.addEventListener('click', function () { toggleAuthForms(true); });
+  }
+  var btnShowLogin = document.getElementById('btnShowLogin');
+  if (btnShowLogin) {
+    btnShowLogin.addEventListener('click', function () { toggleAuthForms(false); });
+  }
+  var registerForm = document.getElementById('registerForm');
+  if (registerForm) {
+    registerForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var username = (document.getElementById('regUsername').value || '').trim().toLowerCase();
+      var email = (document.getElementById('regEmail').value || '').trim();
+      var phone = (document.getElementById('regPhone').value || '').trim();
+      var displayName = (document.getElementById('regDisplayName').value || '').trim();
+      var password = document.getElementById('regPassword').value || '';
+      var btn = document.getElementById('registerBtn');
+      if (!username || password.length < 6) {
+        showRegisterError('Usuario y contraseña (mín. 6) obligatorios.');
+        return;
+      }
+      if (!email) {
+        showRegisterError('Correo obligatorio.');
+        return;
+      }
+      if (btn) btn.disabled = true;
+      showRegisterError('Creando cuenta...');
+      api('auth.register', {
+        username: username,
+        email: email,
+        phone: phone,
+        displayName: displayName || username,
+        password: password
+      })
+        .then(function (res) {
+          if (!res.ok) {
+            showRegisterError(res.error || 'No se pudo registrar');
+            return;
+          }
+          setSession(res.token, res.user);
+          showRegisterError('');
+          toggleAuthForms(false);
+          showShell();
+        })
+        .catch(function (err) {
+          showRegisterError(err.message || 'No se pudo registrar');
+        })
+        .finally(function () {
+          if (btn) btn.disabled = false;
+        });
     });
   }
 

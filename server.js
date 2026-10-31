@@ -66,30 +66,82 @@ function upsertDevUser(store, opts) {
   u.role = opts.role;
   u.active = true;
   u.billingDayStart = 1;
+  u.email = usersAuth.normalizeEmail(opts.email || '');
+  u.phone = usersAuth.normalizePhone(opts.phone || '');
+  u.modules = usersAuth.normalizeModules(opts.modules, opts.role);
   u.passwordSalt = cred.salt;
   u.passwordHash = cred.hash;
+  usersAuth.normalizeUserRecord(u);
   return u;
 }
 
 function ensurePrimaryAdmin(store) {
-  // Yurguen: seedVersion 4 = admin + yurguen (user), budgets limpios
-  if (store.seedVersion >= 4) return store;
-  store.users = [];
-  upsertDevUser(store, {
-    username: 'admin',
-    displayName: 'Admin',
-    role: 'admin',
-    password: 'Gunner00',
+  // seed < 4: reset total (dev). seed 4→5: migra campos sin borrar cuentas.
+  if (store.seedVersion >= 5) {
+    (store.users || []).forEach(usersAuth.normalizeUserRecord);
+    return store;
+  }
+  if ((store.seedVersion || 0) < 4) {
+    store.users = [];
+    upsertDevUser(store, {
+      username: 'admin',
+      displayName: 'Admin',
+      role: 'admin',
+      password: 'Gunner00',
+      email: 'admin@exhatech.com',
+    });
+    upsertDevUser(store, {
+      username: 'yurguen',
+      displayName: 'Yurguen',
+      role: 'user',
+      password: 'Gunner00',
+      email: 'yurguen@exhatech.com',
+      modules: { contabilidad: true, bitacora: true },
+    });
+    wipeAllBudgets();
+    try {
+      reloadFocoStore().wipeAllToDefaults();
+    } catch (_) { /* foco opcional en seed */ }
+  }
+  (store.users || []).forEach((u) => {
+    usersAuth.normalizeUserRecord(u);
+    if (u.role === 'admin') {
+      u.modules = { contabilidad: false, bitacora: false };
+    } else if (!u.modules) {
+      u.modules = { contabilidad: true, bitacora: true };
+    }
   });
-  upsertDevUser(store, {
-    username: 'yurguen',
-    displayName: 'Yurguen',
-    role: 'user',
-    password: 'Gunner00',
-  });
-  wipeAllBudgets();
-  store.seedVersion = 4;
+  store.seedVersion = 5;
   return store;
+}
+
+/** Al entrar el admin: limpia datos de users inactivos > 31 días (cuenta queda). */
+function purgeInactiveUserData(store) {
+  reloadBudgetStore();
+  reloadFocoStore();
+  const purged = [];
+  (store.users || []).forEach((u) => {
+    if (!usersAuth.shouldPurgeUserData(u)) return;
+    budgetStore.deleteBudgetForUser(u.id);
+    focoStore.resetUserData(u.id);
+    u.dataClearedAt = new Date().toISOString();
+    purged.push({ id: u.id, username: u.username });
+  });
+  return purged;
+}
+
+function requireModuleUser(req, res, moduleName) {
+  const ctx = requireAuth(req, res);
+  if (!ctx) return null;
+  if (ctx.user.role === 'admin') {
+    send(res, 403, { error: 'El admin solo gestiona usuarios; no opera este módulo.' });
+    return null;
+  }
+  if (!usersAuth.hasModule(ctx.user, moduleName)) {
+    send(res, 403, { error: 'No tenés acceso a este módulo. Pedile al admin que te lo active.' });
+    return null;
+  }
+  return ctx;
 }
 
 function ensureUsersFile() {
@@ -106,9 +158,9 @@ function ensureUsersFile() {
   }
   const before = store.seedVersion || 0;
   store = ensurePrimaryAdmin(store);
-  if (!fs.existsSync(USERS_FILE) || before < 4) {
+  if (!fs.existsSync(USERS_FILE) || before < 5) {
     fs.writeFileSync(USERS_FILE, JSON.stringify(store, null, 2), 'utf8');
-    console.log('Yurguen: cuentas dev — admin (admin) + yurguen (user)');
+    console.log('Yurguen: cuentas seed v5 — admin (gestión) + yurguen (user, ambos módulos)');
   }
 }
 
@@ -117,6 +169,7 @@ function loadUsersStore() {
   try {
     const raw = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
     if (!raw.users || !Array.isArray(raw.users)) return { users: [] };
+    (raw.users || []).forEach(usersAuth.normalizeUserRecord);
     return raw;
   } catch {
     return { users: [] };
@@ -254,12 +307,66 @@ const server = http.createServer(async (req, res) => {
           send(res, 200, { ok: false, error: 'Credenciales inválidas' });
           return;
         }
+        usersAuth.touchLogin(user);
+        let purged = [];
+        if (user.role === 'admin') {
+          purged = purgeInactiveUserData(store);
+        }
+        saveUsersStore(store);
         const token = createSession(user);
         send(res, 200, {
           ok: true,
           token,
           user: usersAuth.publicUser(user),
+          purgedInactive: purged,
         });
+        return;
+      }
+
+      // Registro público: ambos módulos activos
+      if (action === 'auth.register') {
+        const store = loadUsersStore();
+        const username = String(body.username || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        const email = usersAuth.normalizeEmail(body.email);
+        const phone = usersAuth.normalizePhone(body.phone);
+        const displayName = String(body.displayName || username).trim();
+        if (!username || password.length < 6) {
+          send(res, 400, { error: 'Usuario y contraseña (mín. 6) obligatorios' });
+          return;
+        }
+        if (!usersAuth.isValidEmail(email)) {
+          send(res, 400, { error: 'Correo válido obligatorio' });
+          return;
+        }
+        if (findUserByUsername(store, username)) {
+          send(res, 400, { error: 'Ese usuario ya existe' });
+          return;
+        }
+        if (store.users.some((x) => usersAuth.normalizeEmail(x.email) === email)) {
+          send(res, 400, { error: 'Ese correo ya está registrado' });
+          return;
+        }
+        const cred = usersAuth.hashPassword(password);
+        const nu = {
+          id: usersAuth.uid(),
+          username,
+          displayName,
+          role: 'user',
+          active: true,
+          email,
+          phone,
+          modules: { contabilidad: true, bitacora: true },
+          billingDayStart: 1,
+          passwordSalt: cred.salt,
+          passwordHash: cred.hash,
+          createdAt: new Date().toISOString(),
+        };
+        usersAuth.normalizeUserRecord(nu);
+        store.users.push(nu);
+        saveUsersStore(store);
+        const token = createSession(nu);
+        send(res, 200, { ok: true, token, user: usersAuth.publicUser(nu) });
         return;
       }
 
@@ -273,6 +380,16 @@ const server = http.createServer(async (req, res) => {
         const ctx = requireAuth(req, res);
         if (!ctx) return;
         send(res, 200, { ok: true, user: usersAuth.publicUser(ctx.user) });
+        return;
+      }
+
+      // Tracking de apertura de módulo (para anuncios / adopción)
+      if (action === 'track.module') {
+        const ctx = requireAuth(req, res);
+        if (!ctx) return;
+        usersAuth.touchModule(ctx.user, body.module);
+        saveUsersStore(ctx.store);
+        send(res, 200, { ok: true });
         return;
       }
 
@@ -298,6 +415,7 @@ const server = http.createServer(async (req, res) => {
         const cred = usersAuth.hashPassword(next);
         ctx.user.passwordSalt = cred.salt;
         ctx.user.passwordHash = cred.hash;
+        ctx.user.mustChangePassword = false;
         saveUsersStore(ctx.store);
         send(res, 200, { ok: true });
         return;
@@ -320,9 +438,15 @@ const server = http.createServer(async (req, res) => {
         const password = String(body.password || '');
         const displayName = String(body.displayName || username).trim();
         const role = body.role === 'admin' ? 'admin' : 'user';
+        const email = usersAuth.normalizeEmail(body.email);
+        const phone = usersAuth.normalizePhone(body.phone);
         const billingDayStart = Math.min(28, Math.max(1, Number(body.billingDayStart) || 1));
         if (!username || password.length < 6) {
           send(res, 400, { error: 'Usuario y contraseña (mín. 6) obligatorios' });
+          return;
+        }
+        if (role !== 'admin' && !usersAuth.isValidEmail(email)) {
+          send(res, 400, { error: 'Correo válido obligatorio para usuarios' });
           return;
         }
         if (findUserByUsername(ctx.store, username)) {
@@ -336,11 +460,17 @@ const server = http.createServer(async (req, res) => {
           displayName,
           role,
           active: true,
+          email,
+          phone,
+          modules: role === 'admin'
+            ? { contabilidad: false, bitacora: false }
+            : usersAuth.normalizeModules(body.modules, 'user'),
           billingDayStart,
           passwordSalt: cred.salt,
           passwordHash: cred.hash,
           createdAt: new Date().toISOString(),
         };
+        usersAuth.normalizeUserRecord(nu);
         ctx.store.users.push(nu);
         saveUsersStore(ctx.store);
         send(res, 200, { ok: true, user: usersAuth.publicUser(nu) });
@@ -358,6 +488,29 @@ const server = http.createServer(async (req, res) => {
         if (body.displayName != null) {
           target.displayName = String(body.displayName).trim() || target.username;
         }
+        if (body.email != null) {
+          const email = usersAuth.normalizeEmail(body.email);
+          if (email && !usersAuth.isValidEmail(email)) {
+            send(res, 400, { error: 'Correo inválido' });
+            return;
+          }
+          if (email) {
+            const clash = ctx.store.users.find(
+              (x) => x.id !== target.id && usersAuth.normalizeEmail(x.email) === email
+            );
+            if (clash) {
+              send(res, 400, { error: 'Ese correo ya está en otro usuario' });
+              return;
+            }
+          }
+          target.email = email;
+        }
+        if (body.phone != null) {
+          target.phone = usersAuth.normalizePhone(body.phone);
+        }
+        if (body.modules != null && target.role !== 'admin') {
+          target.modules = usersAuth.normalizeModules(body.modules, 'user');
+        }
         if (body.active != null) {
           if (target.id === ctx.user.id && body.active === false) {
             send(res, 400, { error: 'No podés desactivarte a vos mismo' });
@@ -374,6 +527,10 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           target.role = body.role;
+          target.modules = usersAuth.normalizeModules(
+            body.modules != null ? body.modules : target.modules,
+            target.role
+          );
         }
         if (body.newPassword) {
           if (String(body.newPassword).length < 6) {
@@ -383,9 +540,39 @@ const server = http.createServer(async (req, res) => {
           const cred = usersAuth.hashPassword(body.newPassword);
           target.passwordSalt = cred.salt;
           target.passwordHash = cred.hash;
+          target.mustChangePassword = false;
         }
+        usersAuth.normalizeUserRecord(target);
         saveUsersStore(ctx.store);
         send(res, 200, { ok: true, user: usersAuth.publicUser(target) });
+        return;
+      }
+
+      // Clave temporal: el admin la ve una vez (sin correo aún)
+      if (action === 'users.issueTempPassword') {
+        const ctx = requireAdmin(req, res);
+        if (!ctx) return;
+        const target = findUserById(ctx.store, body.id);
+        if (!target) {
+          send(res, 404, { error: 'Usuario no encontrado' });
+          return;
+        }
+        if (target.role === 'admin') {
+          send(res, 400, { error: 'No se emite clave temporal a admins' });
+          return;
+        }
+        const tempPassword = usersAuth.generateTempPassword();
+        const cred = usersAuth.hashPassword(tempPassword);
+        target.passwordSalt = cred.salt;
+        target.passwordHash = cred.hash;
+        target.mustChangePassword = true;
+        saveUsersStore(ctx.store);
+        send(res, 200, {
+          ok: true,
+          tempPassword,
+          user: usersAuth.publicUser(target),
+          hint: 'Copiá la clave ahora; no se vuelve a mostrar. Cuando haya correo, se enviará al email del usuario.',
+        });
         return;
       }
 
@@ -410,12 +597,23 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // Yurguen: cada usuario define su propio día de inicio del ciclo
+      // Yurguen: perfil — teléfono / día de ciclo (solo usuarios con Contabilidad)
       if (action === 'profile.update') {
         const ctx = requireAuth(req, res);
         if (!ctx) return;
+        if (ctx.user.role === 'admin') {
+          send(res, 403, { error: 'El admin no tiene cuenta operativa; solo gestiona usuarios.' });
+          return;
+        }
         let syncedPeriod = null;
+        if (body.phone != null) {
+          ctx.user.phone = usersAuth.normalizePhone(body.phone);
+        }
         if (body.billingDayStart != null) {
+          if (!usersAuth.hasModule(ctx.user, 'contabilidad')) {
+            send(res, 403, { error: 'No tenés Contabilidad activa.' });
+            return;
+          }
           const newDay = Math.min(28, Math.max(1, Number(body.billingDayStart) || 1));
           ctx.user.billingDayStart = newDay;
           try {
@@ -426,7 +624,6 @@ const server = http.createServer(async (req, res) => {
             }
             const sync = budgetStore.syncOpenPeriodEndToCutDay(budget, newDay);
             if (!sync || !sync.period) {
-              // No hay abierto: crear/usar default y reintentar
               budgetStore.bootstrapFirstPeriod(budget, newDay);
               budgetStore.syncOpenPeriodEndToCutDay(budget, newDay);
             }
@@ -459,7 +656,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Yurguen: presupuesto por usuario ----
       if (action === 'budget.get') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         try {
           reloadBudgetStore();
@@ -476,6 +673,8 @@ const server = http.createServer(async (req, res) => {
           } catch (e) {
             if (e.code !== 'cut_in_past') throw e;
           }
+          // Recuperación: plan vacío tras cierre viejo → heredar del ciclo previo
+          budgetStore.seedOpenPlanFromPriorClosed(budget);
           const cycles = budgetStore.listCycles(budget);
           const preferred = body.cycleKey || budgetStore.resolveDefaultCycleKey(budget);
           let period = budgetStore.findPeriod(budget, preferred);
@@ -504,11 +703,19 @@ const server = http.createServer(async (req, res) => {
               { label: 'Egresos presupuestados', value: summary.plannedExpense, kind: 'expense', series: 'planned' },
               { label: 'Egresos ejecutados', value: summary.actualExpense, kind: 'expense', series: 'actual' },
             ],
-            byCategory: Object.keys(summary.byCategory).map((id) => ({
-              id,
-              label: id === 'none' ? 'Sin categoría' : (catMap[id] || 'Otra'),
-              value: summary.byCategory[id],
-            })).filter((r) => r.value > 0).sort((a, b) => b.value - a.value),
+            byCategory: Object.keys(summary.byCategory).map((id) => {
+              const bucket = summary.byCategory[id] || {};
+              const planned = Number(bucket.planned) || 0;
+              const actual = Number(bucket.actual) || 0;
+              return {
+                id,
+                label: id === 'none' ? 'Sin categoría' : (catMap[id] || 'Otra'),
+                value: actual,
+                planned,
+                actual,
+              };
+            }).filter((r) => r.actual > 0 || r.planned > 0)
+              .sort((a, b) => b.actual - a.actual || b.planned - a.planned),
           };
           send(res, 200, {
             ok: true,
@@ -534,7 +741,7 @@ const server = http.createServer(async (req, res) => {
 
       // Yurguen: tipo de cambio del ciclo (₡ por 1 USD)
       if (action === 'budget.period.update') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const budget = budgetStore.loadBudget(ctx.user.id);
         const period = budgetStore.findPeriod(budget, body.cycleKey)
@@ -570,7 +777,7 @@ const server = http.createServer(async (req, res) => {
 
       // Yurguen: cerrar ciclo → solo lectura + abre el siguiente
       if (action === 'budget.period.close') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const day = Number(ctx.user.billingDayStart) || 1;
         const budget = budgetStore.loadBudget(ctx.user.id);
@@ -596,7 +803,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.category.save') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const name = String(body.name || '').trim();
         const type = body.type === 'income' ? 'income' : 'expense';
@@ -639,7 +846,7 @@ const server = http.createServer(async (req, res) => {
 
       // Subir / bajar categoría en el listado de Presupuesto
       if (action === 'budget.category.move') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         reloadBudgetStore();
         const dir = body.direction === 'up' ? -1 : 1;
@@ -676,7 +883,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.category.delete') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const budget = budgetStore.loadBudget(ctx.user.id);
         budget.categories = (budget.categories || []).filter((c) => c.id !== body.id);
@@ -690,7 +897,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.plan.save') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         // Dev: recargar store para no perder campos nuevos (ej. tag) con require cacheado
         reloadBudgetStore();
@@ -775,7 +982,7 @@ const server = http.createServer(async (req, res) => {
 
       // Subir / bajar línea de presupuesto dentro de su categoría
       if (action === 'budget.plan.move') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         reloadBudgetStore();
         if (!body.id || (body.direction !== 'up' && body.direction !== 'down')) {
@@ -829,7 +1036,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.plan.delete') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const budget = budgetStore.loadBudget(ctx.user.id);
         const period = budgetStore.findPeriod(budget, body.cycleKey)
@@ -861,7 +1068,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.execution.save') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const amount = Number(body.amount);
         const currency = budgetStore.normalizeCurrency(body.currency);
@@ -930,7 +1137,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.execution.delete') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const budget = budgetStore.loadBudget(ctx.user.id);
         const period = budgetStore.findPeriod(budget, body.cycleKey)
@@ -960,7 +1167,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Préstamos históricos (no afectan presupuesto) ----
       if (action === 'budget.loan.save') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const person = String(body.person || '').trim();
         if (!person) {
@@ -996,7 +1203,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.loan.delete') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const budget = budgetStore.loadBudget(ctx.user.id);
         budget.loans = (budget.loans || []).filter((l) => l.id !== body.id);
@@ -1006,7 +1213,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.loan.movement.save') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const amount = Number(body.amount);
         const currency = budgetStore.normalizeCurrency(body.currency);
@@ -1056,7 +1263,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (action === 'budget.loan.movement.delete') {
-        const ctx = requireAuth(req, res);
+        const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
         const budget = budgetStore.loadBudget(ctx.user.id);
         const loan = budgetStore.findLoan(budget, body.loanId);
@@ -1101,24 +1308,21 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const action = body.action;
+    // Gate Bitácora: admin y sin módulo no operan
+    const ctx = requireModuleUser(req, res, 'bitacora');
+    if (!ctx) return;
 
     try {
       if (action === 'get') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         send(res, 200, { ok: true, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'saveCondo') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const condo = focoStore.saveCondo(ctx.user.id, body);
         send(res, 200, { ok: true, condo, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'deleteCondo') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de condominio obligatorio' });
           return;
@@ -1128,15 +1332,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'saveOrigen') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const origen = focoStore.saveOrigen(ctx.user.id, body);
         send(res, 200, { ok: true, origen, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'deleteOrigen') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de origen obligatorio' });
           return;
@@ -1146,15 +1346,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'saveRole') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const role = focoStore.saveRole(ctx.user.id, body);
         send(res, 200, { ok: true, role, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'deleteRole') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de rol obligatorio' });
           return;
@@ -1164,15 +1360,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'saveFormaPago') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const formaPago = focoStore.saveFormaPago(ctx.user.id, body);
         send(res, 200, { ok: true, formaPago, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'deleteFormaPago') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de forma de pago obligatorio' });
           return;
@@ -1182,15 +1374,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'saveCajaMov') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const movimiento = focoStore.saveCajaMov(ctx.user.id, body);
         send(res, 200, { ok: true, movimiento, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'deleteCajaMov') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de movimiento obligatorio' });
           return;
@@ -1200,15 +1388,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'saveContact') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const contact = focoStore.saveContact(ctx.user.id, body);
         send(res, 200, { ok: true, contact, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'moveCatalog') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.list || !body.id || !body.direction) {
           send(res, 400, { error: 'list, id y direction obligatorios' });
           return;
@@ -1218,8 +1402,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'deleteContact') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de contacto obligatorio' });
           return;
@@ -1229,15 +1411,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'createItem') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         const item = focoStore.createItem(ctx.user.id, body);
         send(res, 200, { ok: true, item, data: focoStore.getSnapshot(ctx.user.id) });
         return;
       }
       if (action === 'updateItem') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de ítem obligatorio' });
           return;
@@ -1247,8 +1425,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'moveItem') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id || !body.status) {
           send(res, 400, { error: 'Id y status obligatorios' });
           return;
@@ -1263,8 +1439,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'toggleAction') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id || !body.actionId) {
           send(res, 400, { error: 'Id de ítem y de acción obligatorios' });
           return;
@@ -1274,8 +1448,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (action === 'deleteItem') {
-        const ctx = requireAuth(req, res);
-        if (!ctx) return;
         if (!body.id) {
           send(res, 400, { error: 'Id de ítem obligatorio' });
           return;

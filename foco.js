@@ -257,6 +257,11 @@
     if (shell) shell.classList.add('active');
     var label = document.getElementById('userLabel');
     if (label) label.textContent = (state.user && (state.user.displayName || state.user.username)) || '';
+    // Slots AdSense: visibles para usuarios con Bitácora (admin no opera acá)
+    var showAds = !(state.user && state.user.role === 'admin');
+    document.querySelectorAll('.ad-slot').forEach(function (slot) {
+      slot.hidden = !showAds;
+    });
   }
 
   function applyData(data) {
@@ -1308,8 +1313,17 @@
             return;
           }
           setSession(res.token, res.user);
+          if (res.user && res.user.role === 'admin') {
+            showLoginError('El admin solo gestiona usuarios en Contabilidad.');
+            return;
+          }
+          if (!(res.user && res.user.modules && res.user.modules.bitacora)) {
+            showLoginError('No tenés Bitácora activa. Pedile al admin que te la active.');
+            return;
+          }
           showShell();
           switchPanel('tablero');
+          authApi('track.module', { module: 'bitacora' }).catch(function () {});
           return loadData();
         })
         .catch(function () {

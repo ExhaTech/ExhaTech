@@ -240,6 +240,8 @@ export async function handleEhData(request, env, body) {
       } catch (e) {
         if (!e || e.code !== 'cut_in_past') throw e;
       }
+      // Recuperación: plan vacío tras cierre viejo → heredar del ciclo previo
+      budgetStore.seedOpenPlanFromPriorClosed(budget);
       const cycles = budgetStore.listCycles(budget);
       const preferred = body.cycleKey || budgetStore.resolveDefaultCycleKey(budget);
       let period = budgetStore.findPeriod(budget, preferred);
@@ -267,11 +269,19 @@ export async function handleEhData(request, env, body) {
           { label: 'Egresos presupuestados', value: summary.plannedExpense, kind: 'expense', series: 'planned' },
           { label: 'Egresos ejecutados', value: summary.actualExpense, kind: 'expense', series: 'actual' },
         ],
-        byCategory: Object.keys(summary.byCategory).map((id) => ({
-          id,
-          label: id === 'none' ? 'Sin categoría' : (catMap[id] || 'Otra'),
-          value: summary.byCategory[id],
-        })).filter((r) => r.value > 0).sort((a, b) => b.value - a.value),
+        byCategory: Object.keys(summary.byCategory).map((id) => {
+          const bucket = summary.byCategory[id] || {};
+          const planned = Number(bucket.planned) || 0;
+          const actual = Number(bucket.actual) || 0;
+          return {
+            id,
+            label: id === 'none' ? 'Sin categoría' : (catMap[id] || 'Otra'),
+            value: actual,
+            planned,
+            actual,
+          };
+        }).filter((r) => r.actual > 0 || r.planned > 0)
+          .sort((a, b) => b.actual - a.actual || b.planned - a.planned),
       };
       return json({
         ok: true,

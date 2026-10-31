@@ -6,7 +6,7 @@
   <!-- Yurguen: Bitácora — no indexar -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Exha — Bitácora</title>
-  <link rel="stylesheet" href="/bitacora.css?v=13" />
+  <link rel="stylesheet" href="/bitacora.css?v=16" />
 </head>
 <body>
   <section class="foco-login" id="focoLogin">
@@ -26,6 +26,14 @@
         <p class="foco-msg error" id="loginError" role="alert"></p>
       </form>
       <a href="/" style="display:inline-block;margin-top:12px;font-size:0.85rem">← Volver al sitio</a>
+      <footer class="site-footer site-footer--login">
+        <p class="site-footer__line site-footer__dev">
+          Desarrollado por
+          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
+          · Encontranos:
+          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">www.exhatech.com</a>
+        </p>
+      </footer>
     </div>
   </section>
 
@@ -47,6 +55,10 @@
 
     <main class="foco-main foco-main--wide">
       <p class="foco-msg error" id="apiError" hidden></p>
+      <div class="ad-slot" data-ad-slot="foco-top" aria-label="Espacio para anuncios" hidden>
+        <span class="ad-slot__label">Anuncio</span>
+        <span class="ad-slot__hint">Slot Bitácora · superior (AdSense)</span>
+      </div>
 
       <section class="foco-panel" id="panel-captura">
         <h2>Captura rápida</h2>
@@ -221,7 +233,22 @@
           <div id="listFormasPago" class="condo-list"></div>
         </div>
       </section>
+
+      <div class="ad-slot ad-slot--footer" data-ad-slot="foco-bottom" aria-label="Espacio para anuncios" hidden>
+        <span class="ad-slot__label">Anuncio</span>
+        <span class="ad-slot__hint">Slot Bitácora · pie (AdSense)</span>
+      </div>
     </main>
+
+    <footer class="site-footer">
+      <p class="site-footer__line site-footer__cliente">Exha — Bitácora</p>
+      <p class="site-footer__line site-footer__dev">
+        Desarrollado por
+        <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
+        · Encontranos:
+        <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">www.exhatech.com</a>
+      </p>
+    </footer>
   </div>
 
   <div class="modal-backdrop" id="modalBackdrop" hidden>
@@ -237,6 +264,6 @@
     </div>
   </div>
 
-  <script src="/bitacora.js?v=13"></script>
+  <script src="/bitacora.js?v=16"></script>
 </body>
 </html>

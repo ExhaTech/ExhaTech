@@ -6,7 +6,7 @@
   <!-- Yurguen: servicio oculto — no indexar -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Exha — Contabilidad</title>
-  <link rel="stylesheet" href="/contabilidad.css?v=60" />
+  <link rel="stylesheet" href="/contabilidad.css?v=66" />
 </head>
 <body>
   <section class="admin-login" id="adminLogin">
@@ -24,7 +24,29 @@
         <button type="submit" class="btn btn-primary" id="loginBtn" style="width:100%;margin-top:8px">Entrar</button>
         <p class="admin-msg error" id="loginError" role="alert"></p>
       </form>
+      <p style="margin:14px 0 0;font-size:0.85rem;text-align:center">
+        <button type="button" class="btn btn-outline btn-sm" id="btnShowRegister" style="width:100%">Crear cuenta</button>
+      </p>
+      <form id="registerForm" novalidate hidden>
+        <div class="field"><label>Usuario *</label><input type="text" id="regUsername" autocomplete="username" required /></div>
+        <div class="field"><label>Correo *</label><input type="email" id="regEmail" autocomplete="email" required /></div>
+        <div class="field"><label>WhatsApp</label><input type="tel" id="regPhone" autocomplete="tel" placeholder="+506…" /></div>
+        <div class="field"><label>Nombre</label><input type="text" id="regDisplayName" autocomplete="name" /></div>
+        <div class="field"><label>Contraseña * (mín. 6)</label><input type="password" id="regPassword" autocomplete="new-password" required /></div>
+        <button type="submit" class="btn btn-primary" id="registerBtn" style="width:100%;margin-top:8px">Registrarme</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnShowLogin" style="width:100%;margin-top:6px">Ya tengo cuenta</button>
+        <p class="admin-msg error" id="registerError" role="alert"></p>
+        <p class="panel-hint">Al registrarte activás Contabilidad y Bitácora. Si no entrás en 31 días, se borran tus datos.</p>
+      </form>
       <a href="index.html" style="display:inline-block;margin-top:12px;font-size:0.85rem">← Volver al sitio</a>
+      <footer class="site-footer site-footer--login">
+        <p class="site-footer__line site-footer__dev">
+          Desarrollado por
+          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
+          · Encontranos:
+          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">www.exhatech.com</a>
+        </p>
+      </footer>
     </div>
   </section>
 
@@ -59,6 +81,11 @@
 
     <main class="admin-main">
       <p class="admin-msg error" id="apiError" hidden></p>
+      <p class="admin-msg ok" id="purgeNotice" hidden></p>
+      <div class="ad-slot" data-ad-slot="conta-top" aria-label="Espacio para anuncios" hidden>
+        <span class="ad-slot__label">Anuncio</span>
+        <span class="ad-slot__hint">Slot Contabilidad · superior (AdSense)</span>
+      </div>
       <p id="cycleRangeLabel" class="cycle-range-label"></p>
       <p id="cycleClosedBanner" class="cycle-closed-banner" hidden>Periodo cerrado: tipo de cambio, fechas e información quedan congelados y no se pueden cambiar.</p>
       <p id="cycleExpiredBanner" class="cycle-expired-banner" hidden>Este ciclo ya terminó. No podés agregar más movimientos: cerralo en Ejecución (o extendé el fin cambiando el día de inicio en Mi cuenta).</p>
@@ -102,7 +129,7 @@
           </div>
           <div class="admin-card chart-block chart-block--wide">
             <h3>Gastos por categoría</h3>
-            <p class="chart-sub" id="chartPieSub">Distribución de egresos ejecutados</p>
+            <p class="chart-sub" id="chartPieSub">En el pastel: % del total · En la lista: ejecutado / presupuestado y % del plan</p>
             <div class="pie-chart" id="chartByCategory"></div>
           </div>
         </div>
@@ -202,12 +229,16 @@
       <section class="admin-panel" id="panel-cuenta">
         <div class="admin-card admin-card--narrow">
           <h2>Mi cuenta</h2>
-          <div class="field">
+          <div class="field" id="phoneFieldWrap">
+            <label for="myPhone">WhatsApp / teléfono</label>
+            <input type="tel" id="myPhone" autocomplete="tel" placeholder="+506…" />
+          </div>
+          <div class="field" id="billingFieldWrap">
             <label for="myBillingDay">Día de inicio del ciclo (1-28)</label>
             <input type="number" id="myBillingDay" min="1" max="28" inputmode="numeric" />
             <p class="panel-hint" style="margin-top:6px">Ej. día 1 = el ciclo va del 1 al último día del mes. Día 15 = del 15 al 14 del mes siguiente.</p>
           </div>
-          <button type="button" class="btn btn-primary" id="btnSaveProfile">Guardar día de inicio</button>
+          <button type="button" class="btn btn-primary" id="btnSaveProfile">Guardar perfil</button>
           <hr class="panel-divider" />
           <h3>Cambiar contraseña</h3>
           <div class="field">
@@ -238,9 +269,9 @@
               <thead>
                 <tr>
                   <th>Usuario</th>
-                  <th>Nombre</th>
-                  <th>Rol</th>
-                  <th>Inicio</th>
+                  <th>Correo</th>
+                  <th>Módulos</th>
+                  <th>Logins</th>
                   <th>Estado</th>
                   <th></th>
                 </tr>
@@ -250,7 +281,22 @@
           </div>
         </div>
       </section>
+
+      <div class="ad-slot ad-slot--footer" data-ad-slot="conta-bottom" aria-label="Espacio para anuncios" hidden>
+        <span class="ad-slot__label">Anuncio</span>
+        <span class="ad-slot__hint">Slot Contabilidad · pie (AdSense)</span>
+      </div>
     </main>
+
+    <footer class="site-footer">
+      <p class="site-footer__line site-footer__cliente">Exha — Contabilidad</p>
+      <p class="site-footer__line site-footer__dev">
+        Desarrollado por
+        <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
+        · Encontranos:
+        <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">www.exhatech.com</a>
+      </p>
+    </footer>
   </div>
 
   <div class="modal-backdrop" id="modalBackdrop">
@@ -267,6 +313,6 @@
     </div>
   </div>
 
-  <script src="/contabilidad.js?v=75"></script>
+  <script src="/contabilidad.js?v=82"></script>
 </body>
 </html>

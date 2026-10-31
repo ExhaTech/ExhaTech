@@ -350,30 +350,23 @@ function nextStartDayAfter(afterIso, day) {
 
 /**
  * Día N = día de INICIO del ciclo (no es el fin).
- * Fin = día anterior al próximo N.
+ * Fin = día anterior al próximo N (fin natural; puede quedar en el pasado).
  * Ej. N=22 y periodo desde 1/10 → fin 21/10 (el 22 arranca el siguiente).
  * Ej. N=1 → fin = último día del mes.
+ * refToday solo se usa si falta startDate (compat API / smoke tests).
  */
 export function resolveCutEndDate(startDate, billingDay, refToday) {
   const day = Math.min(28, Math.max(1, Number(billingDay) || 1));
   const today = refToday || todayIso();
   const start = String(startDate || today).slice(0, 10);
-  const floor = start > today ? start : today;
-
-  let nextStart = nextStartDayAfter(start, day);
-  let endIso = addDaysIso(nextStart, -1);
-
-  // Si el fin natural ya pasó (antes de hoy), saltar al siguiente ciclo
-  while (endIso < floor) {
-    nextStart = nextStartDayAfter(nextStart, day);
-    endIso = addDaysIso(nextStart, -1);
-  }
-  return endIso;
+  const nextStart = nextStartDayAfter(start, day);
+  return addDaysIso(nextStart, -1);
 }
 
 /**
  * Sincroniza el FIN del ciclo abierto según el día de inicio (el startDate no cambia).
- * Fin = día anterior al próximo inicio. No puede quedar antes de hoy.
+ * Fin = día anterior al próximo inicio. Si ese fin ya pasó, se fija igual
+ * (periodo vencido y cerrable); no se estira al siguiente corte.
  */
 export function syncOpenPeriodEndToCutDay(budget, billingDay) {
   const day = Math.min(28, Math.max(1, Number(billingDay) || 1));
@@ -382,14 +375,14 @@ export function syncOpenPeriodEndToCutDay(budget, billingDay) {
     .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')))[0];
   if (!open) return { period: null, changed: false };
   const newEnd = resolveCutEndDate(open.startDate, day);
-  if (String(newEnd) < todayIso()) {
-    const err = new Error('El fin del periodo no puede ser antes de hoy.');
-    err.code = 'cut_in_past';
-    throw err;
-  }
   const changed = String(open.endDate || '') !== String(newEnd);
   open.endDate = newEnd;
-  return { period: open, newEnd, changed };
+  return {
+    period: open,
+    newEnd,
+    changed,
+    expired: String(newEnd) < todayIso(),
+  };
 }
 
 /** @deprecated usar syncOpenPeriodEndToCutDay */
@@ -437,6 +430,46 @@ export function resolveDefaultCycleKey(budget) {
   return all.length ? all[0].key : null;
 }
 
+/** Copia líneas de plan (nuevos ids). No copia ejecución. */
+export function copyPlanLinesFrom(sourceLines) {
+  return (sourceLines || []).map((line, idx) => {
+    const tag = String(line.tag || line.label || line.planLabel || '').trim();
+    let sortOrder = Number(line.sortOrder);
+    if (isNaN(sortOrder)) sortOrder = idx;
+    return {
+      id: uid('plan'),
+      categoryId: line.categoryId,
+      planned: Number(line.planned) || 0,
+      currency: normalizeCurrency(line.currency),
+      tag,
+      label: tag,
+      sortOrder,
+    };
+  });
+}
+
+/**
+ * Si el ciclo abierto quedó sin plan (cierre viejo no heredaba),
+ * rellena desde el cerrado que termina el día anterior.
+ */
+export function seedOpenPlanFromPriorClosed(budget) {
+  const open = (budget.periods || [])
+    .filter((p) => p.status !== 'closed')
+    .sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')))[0];
+  if (!open) return { period: null, seeded: false };
+  if (!Array.isArray(open.budget)) open.budget = [];
+  if (open.budget.length) return { period: open, seeded: false };
+  const start = String(open.startDate || '').slice(0, 10);
+  const prior = (budget.periods || []).find((p) => {
+    if (p.status !== 'closed' || !p.endDate) return false;
+    return addDaysIso(String(p.endDate).slice(0, 10), 1) === start;
+  });
+  if (!prior || !(prior.budget || []).length) return { period: open, seeded: false };
+  open.budget = copyPlanLinesFrom(prior.budget);
+  if (!open.exchangeRate) open.exchangeRate = normalizeExchangeRate(prior.exchangeRate);
+  return { period: open, seeded: true };
+}
+
 /** Crea el ciclo siguiente a partir del cerrado (fechas propias, no calendario fantasma). */
 export function createNextPeriod(budget, closedPeriod, billingDayStart) {
   const startDate = addDaysIso(closedPeriod.endDate || closedPeriod.startDate, 1);
@@ -451,6 +484,11 @@ export function createNextPeriod(budget, closedPeriod, billingDayStart) {
   next.startDate = startDate;
   next.endDate = endDate;
   if (!next.exchangeRate) next.exchangeRate = normalizeExchangeRate(closedPeriod.exchangeRate);
+  // Heredar presupuesto del ciclo cerrado; la ejecución arranca vacía
+  if (!(next.budget || []).length && (closedPeriod.budget || []).length) {
+    next.budget = copyPlanLinesFrom(closedPeriod.budget);
+  }
+  if (!Array.isArray(next.executions)) next.executions = [];
   return { next, nextCycle: { key, startDate, endDate, billingDayStart: Number(billingDayStart) || 1 } };
 }
 
@@ -514,15 +552,24 @@ export function periodSummary(budget, period) {
   let plannedExpense = 0;
   let actualIncome = 0;
   let actualExpense = 0;
+  // Egresos por categoría: { planned, actual } en CRC (para pastel y leyenda)
   const byCategory = {};
   const rate = normalizeExchangeRate(period && period.exchangeRate);
+
+  function ensureCatBucket(catId) {
+    if (!byCategory[catId]) byCategory[catId] = { planned: 0, actual: 0 };
+    return byCategory[catId];
+  }
 
   (period.budget || []).forEach((line) => {
     const cat = findCategory(budget, line.categoryId);
     const plannedCrc = toCrc(line.planned, line.currency, rate);
     if (!cat) return;
     if (cat.type === 'income') plannedIncome += plannedCrc;
-    else plannedExpense += plannedCrc;
+    else {
+      plannedExpense += plannedCrc;
+      ensureCatBucket(line.categoryId || 'none').planned += plannedCrc;
+    }
   });
 
   (period.executions || []).forEach((ex) => {
@@ -534,9 +581,7 @@ export function periodSummary(budget, period) {
       return;
     }
     actualExpense += n;
-    const catId = ex.categoryId || 'none';
-    if (!byCategory[catId]) byCategory[catId] = 0;
-    byCategory[catId] += n;
+    ensureCatBucket(ex.categoryId || 'none').actual += n;
   });
 
   return {
@@ -586,7 +631,7 @@ export function buildHistory(budget) {
 /**
  * Cierra el ciclo y lo congela para siempre:
  * tipo de cambio, fechas e info (plan/ejecución) quedan inmutables.
- * El siguiente ciclo arranca con una copia del TC solo como punto de partida.
+ * El siguiente ciclo hereda TC y líneas de presupuesto (no la ejecución).
  */
 export function closePeriod(budget, cycleKey, billingDayStart) {
   const period = findPeriod(budget, cycleKey);

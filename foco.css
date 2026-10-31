@@ -23,6 +23,64 @@ body {
   line-height: 1.5;
 }
 
+.ad-slot {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(25, 114, 120, 0.35);
+  border-radius: var(--radius);
+  background: rgba(25, 114, 120, 0.06);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-height: 56px;
+}
+.ad-slot--footer { margin-top: 20px; margin-bottom: 8px; }
+.ad-slot__label {
+  font-weight: 600;
+  color: var(--teal);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+}
+.ad-slot__hint { color: var(--muted); }
+
+/* Pie estilo FYG Ferreteros / ExhaTech */
+.site-footer {
+  text-align: center;
+  padding: 1rem 16px 1.15rem;
+  margin-top: auto;
+  border-top: 1px solid rgba(25, 114, 120, 0.18);
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.55);
+}
+.site-footer--login {
+  margin-top: 18px;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(25, 114, 120, 0.12);
+  background: transparent;
+  font-size: 0.8rem;
+}
+.site-footer__line {
+  margin: 0;
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.site-footer__line + .site-footer__line { margin-top: 0.45rem; }
+.site-footer__cliente { color: var(--ink-soft); font-weight: 500; }
+.site-footer__dev-link {
+  color: var(--teal);
+  font-weight: 600;
+  text-decoration: none;
+}
+.site-footer__dev-link:hover { color: var(--teal-dark); text-decoration: underline; }
+
 .foco-login {
   min-height: 100vh;
   display: flex;
@@ -42,8 +100,8 @@ body {
 .foco-login-box h1 { font-size: 1.4rem; margin: 0 0 8px; }
 .foco-login-box > p { color: var(--muted); font-size: 0.9rem; margin: 0 0 24px; }
 
-.foco-shell { display: none; min-height: 100vh; }
-.foco-shell.active { display: block; }
+.foco-shell { display: none; min-height: 100vh; flex-direction: column; }
+.foco-shell.active { display: flex; }
 
 .foco-top {
   background: var(--teal-dark);
@@ -105,6 +163,9 @@ body {
   max-width: 720px;
   margin: 0 auto;
   padding: 20px 16px 48px;
+  width: 100%;
+  flex: 1;
+  box-sizing: border-box;
 }
 .foco-main--wide {
   max-width: none;
