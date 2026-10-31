@@ -1438,17 +1438,24 @@
 
   function deleteModal() {
     if (state.modalMode === 'category' && state.modalId) {
-      if (!confirm('¿Eliminar categoría? Se quitan también sus presupuestos del ciclo abierto.')) return;
+      if (!confirm(
+        '¿Eliminar categoría?\n\n' +
+        'Solo se bloquea si en el ciclo actual tiene ejecución.\n' +
+        'Los ciclos cerrados no se tocan.'
+      )) return;
       api('budget.category.delete', { id: state.modalId })
         .then(function () { closeModal(); return loadBudget(); })
-        .catch(function (err) { alert(err.message); });
+        .catch(function (err) { alert(err.message || 'No se pudo eliminar'); });
       return;
     }
     if (state.modalMode === 'plan' && state.modalId) {
-      if (!confirm('¿Eliminar esta línea de presupuesto?')) return;
+      if (!confirm(
+        '¿Eliminar esta línea de presupuesto?\n\n' +
+        'Si en este ciclo ya tiene ejecución, no se permitirá.'
+      )) return;
       api('budget.plan.delete', { cycleKey: currentCycleKey(), id: state.modalId })
         .then(function () { closeModal(); return loadBudget(); })
-        .catch(function (err) { alert(err.message); });
+        .catch(function (err) { alert(err.message || 'No se pudo eliminar'); });
       return;
     }
     if (state.modalMode === 'loan' && state.modalId) {

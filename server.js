@@ -885,8 +885,23 @@ const server = http.createServer(async (req, res) => {
       if (action === 'budget.category.delete') {
         const ctx = requireModuleUser(req, res, 'contabilidad');
         if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de categoría obligatorio' });
+          return;
+        }
         const budget = budgetStore.loadBudget(ctx.user.id);
+        if (!budgetStore.findCategory(budget, body.id)) {
+          send(res, 404, { error: 'Categoría no encontrada' });
+          return;
+        }
+        try {
+          budgetStore.assertCategoryDeletable(budget, body.id);
+        } catch (e) {
+          send(res, 400, { error: e.message || 'Categoría en uso' });
+          return;
+        }
         budget.categories = (budget.categories || []).filter((c) => c.id !== body.id);
+        // Cascada solo en ciclos abiertos (ya validado que no hay ejecución)
         (budget.periods || []).forEach((p) => {
           if (budgetStore.isPeriodClosed(p)) return;
           p.budget = (p.budget || []).filter((b) => b.categoryId !== body.id);
@@ -1055,6 +1070,20 @@ const server = http.createServer(async (req, res) => {
         }
         if (!body.id) {
           send(res, 400, { error: 'Id de línea de presupuesto obligatorio' });
+          return;
+        }
+        const line = (period.budget || []).find((b) => b.id === body.id);
+        if (!line) {
+          send(res, 404, { error: 'Línea de presupuesto no encontrada' });
+          return;
+        }
+        // Si ya hay ejecución en esa categoría, borrar el plan dejaría el ciclo inconsistente
+        if (budgetStore.periodHasExecutionForCategory(period, line.categoryId)) {
+          send(res, 400, {
+            error:
+              'No se puede eliminar este presupuesto: la categoría ya tiene movimientos de ejecución. ' +
+              'Borralos o ajustá el monto en lugar de eliminar la línea.',
+          });
           return;
         }
         period.budget = (period.budget || []).filter((b) => b.id !== body.id);

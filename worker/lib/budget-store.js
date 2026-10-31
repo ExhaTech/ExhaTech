@@ -79,6 +79,53 @@ export function findCategory(budget, categoryId) {
 }
 
 /**
+ * Uso de una categoría solo en ciclos abiertos (los cerrados son histórico y no bloquean).
+ */
+export function categoryUsage(budget, categoryId) {
+  const id = String(categoryId || '');
+  let planLines = 0;
+  let executions = 0;
+  (budget.periods || []).forEach((p) => {
+    if (isPeriodClosed(p)) return;
+    (p.budget || []).forEach((line) => {
+      if (String(line.categoryId || '') !== id) return;
+      planLines += 1;
+    });
+    (p.executions || []).forEach((ex) => {
+      if (String(ex.categoryId || '') !== id) return;
+      executions += 1;
+    });
+  });
+  return { planLines, executions };
+}
+
+/** true si el periodo tiene ejecución ligada a la categoría */
+export function periodHasExecutionForCategory(period, categoryId) {
+  const id = String(categoryId || '');
+  if (!id || !period) return false;
+  return (period.executions || []).some((ex) => String(ex.categoryId || '') === id);
+}
+
+/**
+ * ¿Se puede borrar la categoría?
+ * Solo mira el ciclo abierto: si hay ejecución, no. Plan sin ejecución se limpia en cascada.
+ * Ciclos cerrados no se tocan ni bloquean el borrado del catálogo.
+ */
+export function assertCategoryDeletable(budget, categoryId) {
+  const u = categoryUsage(budget, categoryId);
+  if (u.executions > 0) {
+    const err = new Error(
+      'No se puede eliminar la categoría: en el ciclo actual tiene ' +
+        u.executions +
+        ' movimiento(s) de ejecución. Borralos o dejá la categoría.'
+    );
+    err.code = 'category_in_use';
+    throw err;
+  }
+  return u;
+}
+
+/**
  * Modelo: categoría (+ comentario) = qué; plan = tope del ciclo; ejecución = movimientos.
  * Migra y elimina rubros (dev).
  */

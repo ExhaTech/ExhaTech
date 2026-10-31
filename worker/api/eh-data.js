@@ -430,7 +430,18 @@ export async function handleEhData(request, env, body) {
   if (action === 'budget.category.delete') {
     const auth = await requireAuth(request, env);
     if (auth.errorResponse) return auth.errorResponse;
+    if (!body.id) {
+      return json({ error: 'Id de categoría obligatorio' }, 400);
+    }
     const budget = await loadBudget(env, auth.ctx.user.id);
+    if (!budgetStore.findCategory(budget, body.id)) {
+      return json({ error: 'Categoría no encontrada' }, 404);
+    }
+    try {
+      budgetStore.assertCategoryDeletable(budget, body.id);
+    } catch (e) {
+      return json({ error: e.message || 'Categoría en uso' }, 400);
+    }
     budget.categories = (budget.categories || []).filter((c) => c.id !== body.id);
     (budget.periods || []).forEach((p) => {
       if (budgetStore.isPeriodClosed(p)) return;
@@ -576,6 +587,17 @@ export async function handleEhData(request, env, body) {
     }
     if (!body.id) {
       return json({ error: 'Id de línea de presupuesto obligatorio' }, 400);
+    }
+    const line = (period.budget || []).find((b) => b.id === body.id);
+    if (!line) {
+      return json({ error: 'Línea de presupuesto no encontrada' }, 404);
+    }
+    if (budgetStore.periodHasExecutionForCategory(period, line.categoryId)) {
+      return json({
+        error:
+          'No se puede eliminar este presupuesto: la categoría ya tiene movimientos de ejecución. ' +
+          'Borralos o ajustá el monto en lugar de eliminar la línea.',
+      }, 400);
     }
     period.budget = (period.budget || []).filter((b) => b.id !== body.id);
     await saveBudget(env, auth.ctx.user.id, budget);
