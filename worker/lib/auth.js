@@ -3,7 +3,7 @@
  */
 import crypto from 'node:crypto';
 import { json } from './http.js';
-import { hashPassword, publicUser, uid } from './passwords.js';
+import { hashPassword, normalizeModules, publicUser, uid } from './passwords.js';
 
 export const SESSION_TTL = 14 * 24 * 60 * 60 * 1000;
 
@@ -21,15 +21,32 @@ function tokenHash(token) {
 
 export function mapUserRow(row) {
   if (!row) return null;
+  const role = row.role === 'admin' ? 'admin' : 'user';
+  // D1 aún no persiste modules; default alineado con Node local.
+  const modules = normalizeModules(
+    row.modules
+      || {
+        contabilidad: row.module_contabilidad == null
+          ? undefined
+          : Number(row.module_contabilidad) !== 0,
+        bitacora: row.module_bitacora == null
+          ? undefined
+          : Number(row.module_bitacora) !== 0,
+      },
+    role
+  );
   return {
     id: row.id,
     username: row.username,
     displayName: row.displayName || row.display_name || row.username,
-    role: row.role === 'admin' ? 'admin' : 'user',
+    role,
     active: row.active !== false && Number(row.active) !== 0,
     passwordSalt: row.passwordSalt || row.password_salt || '',
     passwordHash: row.passwordHash || row.password_hash || '',
     billingDayStart: Number(row.billingDayStart ?? row.billing_day_start) || 1,
+    modules,
+    phone: row.phone || '',
+    email: row.email || '',
     createdAt: row.createdAt || row.created_at || null,
     updatedAt: row.updatedAt || row.updated_at || null,
   };

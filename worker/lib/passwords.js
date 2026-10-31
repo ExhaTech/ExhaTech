@@ -32,15 +32,31 @@ export function uid() {
   return 'u_' + Date.now().toString(36) + '_' + crypto.randomBytes(4).toString('hex');
 }
 
+/** Admin no opera módulos; user por defecto tiene Contabilidad + Bitácora. */
+export function normalizeModules(raw, role) {
+  if (role === 'admin') {
+    return { contabilidad: false, bitacora: false };
+  }
+  const m = raw && typeof raw === 'object' ? raw : {};
+  return {
+    contabilidad: m.contabilidad !== false,
+    bitacora: m.bitacora !== false,
+  };
+}
+
 export function publicUser(user) {
   if (!user) return null;
+  const role = user.role === 'admin' ? 'admin' : 'user';
   return {
     id: user.id,
     username: user.username,
     displayName: user.displayName || user.display_name || user.username,
-    role: user.role === 'admin' ? 'admin' : 'user',
+    role,
     active: user.active !== false && Number(user.active) !== 0,
     billingDayStart: Number(user.billingDayStart ?? user.billing_day_start) || 1,
+    modules: normalizeModules(user.modules, role),
+    phone: user.phone || '',
+    email: user.email || '',
     createdAt: user.createdAt || user.created_at || null,
   };
 }
