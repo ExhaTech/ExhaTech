@@ -6,7 +6,7 @@
   <!-- Yurguen: servicio oculto — no indexar -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Exha — Contabilidad</title>
-  <link rel="stylesheet" href="/contabilidad.css?v=66" />
+  <link rel="stylesheet" href="/contabilidad.css?v=68" />
 </head>
 <body>
   <section class="admin-login" id="adminLogin">
@@ -161,7 +161,7 @@
           </div>
           <p class="panel-hint">Registrá lo que realmente pasó este ciclo. Al cerrarlo queda solo lectura y se abre el siguiente.</p>
           <div class="admin-table-wrap">
-            <table class="admin-table">
+            <table class="admin-table admin-table--exe admin-table--stack">
               <thead><tr><th>Fecha</th><th>Categoría</th><th>Tipo</th><th>Monto</th><th></th></tr></thead>
               <tbody id="exeBody"></tbody>
             </table>
@@ -207,7 +207,7 @@
             </div>
           </div>
           <div class="admin-table-wrap">
-            <table class="admin-table">
+            <table class="admin-table admin-table--stack">
               <thead><tr><th>Fecha</th><th>Ciclo</th><th>Categoría</th><th>Monto</th><th>En ₡</th></tr></thead>
               <tbody id="histBody"></tbody>
             </table>
@@ -265,7 +265,7 @@
             <button type="button" class="btn btn-primary btn-sm" id="btnNewUser">+ Usuario</button>
           </div>
           <div class="admin-table-wrap">
-            <table class="admin-table">
+            <table class="admin-table admin-table--stack">
               <thead>
                 <tr>
                   <th>Usuario</th>
@@ -313,6 +313,6 @@
     </div>
   </div>
 
-  <script src="/contabilidad.js?v=85"></script>
+  <script src="/contabilidad.js?v=86"></script>
 </body>
 </html>

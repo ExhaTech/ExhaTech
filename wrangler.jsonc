@@ -31,7 +31,9 @@
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/api/*"]
+    // true: el Worker siempre corre primero (APIs + rewrites).
+    // Con ["/api/*"] a veces Assets respondía HTML 404 y el front veía <!DOCTYPE.
+    "run_worker_first": true
   },
   "vars": {
     "APP_NAME": "ExhaTech",

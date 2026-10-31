@@ -15,12 +15,21 @@
 }
 
 * { box-sizing: border-box; }
+html {
+  -webkit-text-size-adjust: 100%;
+  overflow-x: clip;
+}
 body {
   margin: 0;
   font-family: 'Outfit', system-ui, sans-serif;
   background: var(--ivory-soft);
   color: var(--ink);
   line-height: 1.5;
+  overflow-x: clip;
+  max-width: 100vw;
+}
+img, svg, video, canvas, table {
+  max-width: 100%;
 }
 
 .admin-login {
@@ -393,6 +402,12 @@ body {
 .resumen-toolbar-label {
   font-size: 0.88rem;
   color: #7a8889;
+  flex: 0 0 auto;
+}
+.resumen-toolbar .currency-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 .cat-plan-list {
   display: flex;
@@ -478,13 +493,22 @@ body {
   border-collapse: collapse;
   font-size: 0.88rem;
   margin-bottom: 8px;
+  table-layout: fixed;
 }
 .cat-plan-lines th,
 .cat-plan-lines td {
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid rgba(25, 114, 120, 0.1);
+  vertical-align: top;
+  word-break: break-word;
 }
+.cat-plan-lines th:nth-child(1),
+.cat-plan-lines td:nth-child(1) { width: 42%; }
+.cat-plan-lines th:nth-child(2),
+.cat-plan-lines td:nth-child(2) { width: 38%; }
+.cat-plan-lines th:nth-child(3),
+.cat-plan-lines td:nth-child(3) { width: 20%; }
 .cat-plan-lines th { color: #7a8889; font-weight: 600; }
 .cat-plan-line-actions {
   display: inline-flex;
@@ -580,6 +604,7 @@ body {
 
 .currency-toggle {
   display: inline-flex;
+  flex-wrap: wrap;
   border: 1px solid rgba(25, 114, 120, 0.25);
   border-radius: 999px;
   overflow: hidden;
@@ -595,6 +620,8 @@ body {
   color: var(--ink-soft, #5a6a6b);
   cursor: pointer;
   min-height: 36px;
+  flex: 1 1 auto;
+  text-align: center;
 }
 .currency-toggle__btn.active {
   background: rgba(25, 114, 120, 0.14);
@@ -747,7 +774,7 @@ body {
 }
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: 20px;
 }
 
@@ -771,13 +798,23 @@ body {
 .cur-badge,
 .type-badge {
   display: inline-block;
-  min-width: 3.2rem;
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-align: center;
+  vertical-align: middle;
+}
+/* Badge de moneda: compacto (₡ / $). No compartir min-width con Tipo. */
+.cur-badge {
+  min-width: 0;
+  padding: 2px 6px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.type-badge {
+  min-width: 3.2rem;
 }
 .cur-badge--crc {
   background: rgba(25, 114, 120, 0.14);
@@ -805,9 +842,14 @@ body {
 .amount--expense { color: #b42318; font-weight: 600; }
 .amount-with-cur {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  max-width: 100%;
   font-variant-numeric: tabular-nums;
+}
+.amount-with-cur .plan-line-orig {
+  margin-left: 0;
 }
 .hist-filter {
   display: flex;
@@ -1035,6 +1077,15 @@ table.admin-table {
   }
   .top-field {
     flex: 1 1 auto;
+    white-space: normal;
+  }
+  .top-field--fx {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .top-field--fx input {
+    width: 5.5rem;
+    flex: 0 0 auto;
   }
   .top-field .cycle-select {
     min-width: 0;
@@ -1053,19 +1104,25 @@ table.admin-table {
     font-size: 0.9rem;
   }
   .admin-main { padding: 14px 12px 28px; }
+  .admin-card { padding: 16px 12px; }
   .admin-stats-row,
   .admin-stats-row--summary,
   .admin-stats-row--secondary,
   .admin-stats-row--panel,
   .admin-stats-row--exe { grid-template-columns: 1fr; }
   .stat-card { padding: 14px; }
-  .stat-card strong { font-size: 1.35rem; }
+  .stat-card strong { font-size: 1.35rem; word-break: break-word; }
   .admin-table { font-size: 0.82rem; }
   .admin-table-wrap {
-    margin: 0 -4px;
+    margin: 0;
     padding-bottom: 4px;
+    overflow-x: visible;
   }
   .admin-clients-grid { grid-template-columns: 1fr !important; }
+  .panel-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .panel-head-actions {
     width: 100%;
   }
@@ -1074,6 +1131,7 @@ table.admin-table {
   }
   .hist-filter {
     width: 100%;
+    flex-wrap: wrap;
   }
   .hist-filter select {
     flex: 1;
@@ -1083,6 +1141,23 @@ table.admin-table {
   .panel-head .btn {
     width: 100%;
   }
+  .resumen-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .currency-toggle {
+    width: 100%;
+    border-radius: 10px;
+  }
+  .currency-toggle__btn {
+    font-size: 0.78rem;
+    padding: 8px 6px;
+  }
+  .vbar-chart {
+    gap: 12px;
+    min-height: 180px;
+  }
+  .vbar-track { width: 36px; height: 130px; }
   .modal-backdrop { padding: 12px; align-items: flex-end; }
   .modal, .modal--wide {
     max-width: 100%;
@@ -1111,5 +1186,120 @@ table.admin-table {
   .field textarea {
     font-size: 16px; /* evita zoom forzado en iOS */
     min-height: 44px;
+  }
+
+  /* Presupuesto */
+  .cat-plan-card { padding: 10px; }
+  .cat-plan-card__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cat-plan-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .cat-plan-lines {
+    display: block;
+    font-size: 0.8rem;
+    table-layout: auto;
+  }
+  .cat-plan-lines thead { display: none; }
+  .cat-plan-lines tbody,
+  .cat-plan-lines tr {
+    display: block;
+    width: 100%;
+  }
+  .cat-plan-lines tr {
+    border: 1px solid rgba(25, 114, 120, 0.14);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: #fff;
+  }
+  .cat-plan-lines td {
+    display: block;
+    width: 100% !important;
+    padding: 4px 0;
+    border: none;
+  }
+  .cat-plan-lines td:first-child {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cat-plan-line-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .cat-plan-line-actions .btn {
+    padding: 4px 8px;
+    min-height: 32px;
+  }
+  .amount-with-cur {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+  }
+  .amount-with-cur .plan-line-orig {
+    font-size: 0.75rem;
+  }
+
+  /* Tablas → tarjetas (Ejecución / Histórico) */
+  .admin-table--stack thead { display: none; }
+  .admin-table--stack,
+  .admin-table--stack tbody {
+    display: block;
+    width: 100%;
+  }
+  .admin-table--stack tr {
+    display: block;
+    width: 100%;
+    border: 1px solid rgba(25, 114, 120, 0.16);
+    border-radius: 12px;
+    background: #fff;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+  .admin-table--stack tr.row--income {
+    box-shadow: inset 3px 0 0 #0d6e4f;
+  }
+  .admin-table--stack tr.row--expense {
+    box-shadow: inset 3px 0 0 #b42318;
+  }
+  .admin-table--stack td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 0;
+    border: none;
+    text-align: right;
+  }
+  .admin-table--stack td::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    text-align: left;
+    flex: 0 0 30%;
+    max-width: 7rem;
+  }
+  .admin-table--stack td:last-child {
+    justify-content: flex-end;
+    padding-top: 8px;
+  }
+  .admin-table--stack td:last-child:not([data-label])::before,
+  .admin-table--stack td[data-label=""]::before {
+    display: none;
+  }
+  /* Ejecución: Tipo ya se ve por el borde */
+  .admin-table--exe td[data-label="Tipo"] {
+    display: none;
   }
 }

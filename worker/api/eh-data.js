@@ -300,7 +300,17 @@ export async function handleEhData(request, env, body) {
         history: budgetStore.buildHistory(budget),
       }, 200);
     } catch (e) {
-      return json({ error: 'budget_load_failed' }, 500);
+      const msg = e && e.message ? String(e.message) : 'budget_load_failed';
+      // Llave ausente/corta → mensaje claro (login sí funciona; guardar/cargar budget no).
+      if (/DATA_ENCRYPTION_KEY|BUDGET_MASTER_KEY/i.test(msg)) {
+        return json({
+          error:
+            'Falta DATA_ENCRYPTION_KEY en el Worker (mín. 32 caracteres). ' +
+            'Corré: npx wrangler secret put DATA_ENCRYPTION_KEY',
+        }, 500);
+      }
+      console.error('budget.get', msg);
+      return json({ error: msg || 'budget_load_failed' }, 500);
     }
   }
 

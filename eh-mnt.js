@@ -1133,12 +1133,12 @@
         ? '<span style="color:#7a8889;font-size:0.85rem">—</span>'
         : '<button type="button" class="btn btn-outline btn-sm" data-edit-exe="' + ex.id + '">Editar</button>';
       return '<tr class="' + rowTypeClass(ex.type) + '">' +
-        '<td>' + escapeHtml(ex.date || '') + '</td>' +
-        '<td><strong>' + escapeHtml(ex.name || '') + '</strong>' +
+        '<td data-label="Fecha">' + escapeHtml(ex.date || '') + '</td>' +
+        '<td data-label="Categoría"><strong>' + escapeHtml(ex.name || '') + '</strong>' +
         (ex.notes ? '<br><small>' + escapeHtml(ex.notes) + '</small>' : '') + '</td>' +
-        '<td>' + typeBadge(ex.type) + '</td>' +
-        '<td>' + formatPlanLineDisplay(ex.amount, ex.currency, ex.type) + '</td>' +
-        '<td>' + action + '</td></tr>';
+        '<td data-label="Tipo">' + typeBadge(ex.type) + '</td>' +
+        '<td data-label="Monto">' + formatPlanLineDisplay(ex.amount, ex.currency, ex.type) + '</td>' +
+        '<td data-label="">' + action + '</td></tr>';
     }).join('');
     tbody.querySelectorAll('[data-edit-exe]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -1180,11 +1180,11 @@
     }
     tbody.innerHTML = rows.map(function (h) {
       return '<tr>' +
-        '<td>' + escapeHtml(h.date || '') + '</td>' +
-        '<td>' + escapeHtml((h.startDate || '') + ' → ' + (h.endDate || '')) + '</td>' +
-        '<td>' + escapeHtml(h.name || catName(h.categoryId)) + '</td>' +
-        '<td>' + formatAmountWithBadge(h.amount, h.currency) + '</td>' +
-        '<td>' + formatMoney(h.amountCrc != null ? h.amountCrc : h.amount) + '</td></tr>';
+        '<td data-label="Fecha">' + escapeHtml(h.date || '') + '</td>' +
+        '<td data-label="Ciclo">' + escapeHtml((h.startDate || '') + ' → ' + (h.endDate || '')) + '</td>' +
+        '<td data-label="Categoría">' + escapeHtml(h.name || catName(h.categoryId)) + '</td>' +
+        '<td data-label="Monto">' + formatAmountWithBadge(h.amount, h.currency) + '</td>' +
+        '<td data-label="En ₡">' + formatMoney(h.amountCrc != null ? h.amountCrc : h.amount) + '</td></tr>';
     }).join('');
   }
 
@@ -1648,18 +1648,18 @@
             (u.modules && u.modules.bitacora) ? 'Bitácora' : null
           ].filter(Boolean).join(', ') || 'Ninguno';
       return '<tr>' +
-        '<td><strong>' + escapeHtml(u.username) + '</strong><div class="panel-hint" style="margin:0">' +
+        '<td data-label="Usuario"><strong>' + escapeHtml(u.username) + '</strong><div class="panel-hint" style="margin:0">' +
           escapeHtml(u.displayName || '') + '</div></td>' +
-        '<td>' + escapeHtml(u.email || '—') +
+        '<td data-label="Correo">' + escapeHtml(u.email || '—') +
           (u.phone ? '<div class="panel-hint" style="margin:0">' + escapeHtml(u.phone) + '</div>' : '') +
         '</td>' +
-        '<td>' + escapeHtml(mods) + '</td>' +
-        '<td>' + (Number(u.loginCount) || 0) +
+        '<td data-label="Módulos">' + escapeHtml(mods) + '</td>' +
+        '<td data-label="Logins">' + (Number(u.loginCount) || 0) +
           (u.lastLoginAt ? '<div class="panel-hint" style="margin:0">' +
             escapeHtml(String(u.lastLoginAt).slice(0, 10)) + '</div>' : '') +
         '</td>' +
-        '<td><span class="badge-status ' + badge + '">' + st + '</span></td>' +
-        '<td><button type="button" class="btn btn-outline btn-sm" data-edit-user="' + u.id + '">Editar</button></td></tr>';
+        '<td data-label="Estado"><span class="badge-status ' + badge + '">' + st + '</span></td>' +
+        '<td data-label=""><button type="button" class="btn btn-outline btn-sm" data-edit-user="' + u.id + '">Editar</button></td></tr>';
     }).join('');
     tbody.querySelectorAll('[data-edit-user]').forEach(function (btn) {
       btn.addEventListener('click', function () {
