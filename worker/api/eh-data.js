@@ -56,6 +56,13 @@ export async function handleEhData(request, env, body) {
     return json({ ok: true }, 200);
   }
 
+  // Telemetría ligera (Contabilidad/Bitácora); no bloquea si falla el cliente.
+  if (action === 'track.module') {
+    const auth = await requireAuth(request, env);
+    if (auth.errorResponse) return auth.errorResponse;
+    return json({ ok: true }, 200);
+  }
+
   if (action === 'me') {
     const auth = await requireAuth(request, env);
     if (auth.errorResponse) return auth.errorResponse;
@@ -602,13 +609,8 @@ export async function handleEhData(request, env, body) {
     if (!line) {
       return json({ error: 'Línea de presupuesto no encontrada' }, 404);
     }
-    if (budgetStore.periodHasExecutionForCategory(period, line.categoryId)) {
-      return json({
-        error:
-          'No se puede eliminar este presupuesto: la categoría ya tiene movimientos de ejecución. ' +
-          'Borralos o ajustá el monto en lugar de eliminar la línea.',
-      }, 400);
-    }
+    // Etiqueta/línea de plan: se puede borrar aunque la categoría tenga ejecución.
+    // La categoría sí se protege en budget.category.delete.
     period.budget = (period.budget || []).filter((b) => b.id !== body.id);
     await saveBudget(env, auth.ctx.user.id, budget);
     return json({

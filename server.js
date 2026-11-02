@@ -1077,15 +1077,8 @@ const server = http.createServer(async (req, res) => {
           send(res, 404, { error: 'Línea de presupuesto no encontrada' });
           return;
         }
-        // Si ya hay ejecución en esa categoría, borrar el plan dejaría el ciclo inconsistente
-        if (budgetStore.periodHasExecutionForCategory(period, line.categoryId)) {
-          send(res, 400, {
-            error:
-              'No se puede eliminar este presupuesto: la categoría ya tiene movimientos de ejecución. ' +
-              'Borralos o ajustá el monto en lugar de eliminar la línea.',
-          });
-          return;
-        }
+        // Etiqueta/línea de plan: se puede borrar aunque la categoría tenga ejecución.
+        // La categoría sí se protege en budget.category.delete.
         period.budget = (period.budget || []).filter((b) => b.id !== body.id);
         budgetStore.saveBudget(ctx.user.id, budget);
         send(res, 200, {

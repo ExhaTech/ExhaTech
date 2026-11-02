@@ -1480,10 +1480,7 @@
       return;
     }
     if (state.modalMode === 'plan' && state.modalId) {
-      if (!confirm(
-        '¿Eliminar esta línea de presupuesto?\n\n' +
-        'Si en este ciclo ya tiene ejecución, no se permitirá.'
-      )) return;
+      if (!confirm('¿Eliminar esta etiqueta / línea de presupuesto?')) return;
       api('budget.plan.delete', { cycleKey: currentCycleKey(), id: state.modalId })
         .then(function () { closeModal(); return loadBudget(); })
         .catch(function (err) { alert(err.message || 'No se pudo eliminar'); });

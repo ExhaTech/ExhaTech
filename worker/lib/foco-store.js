@@ -61,8 +61,13 @@ export async function wipeAllToDefaults(env) {
 
 export async function getSnapshot(env, userId) {
   const data = await loadFoco(env, userId);
+  // Aplicar reglas; si hay que persistir y falla la llave/R2, igual devolvemos el snapshot.
   if (applyBoardRules(data)) {
-    await saveFoco(env, userId, data);
+    try {
+      await saveFoco(env, userId, data);
+    } catch (e) {
+      console.error('foco getSnapshot save:', e && e.message ? e.message : e);
+    }
   }
   return data;
 }

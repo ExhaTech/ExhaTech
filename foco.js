@@ -216,7 +216,15 @@
       headers: headers,
       body: JSON.stringify(payload)
     }).then(function (res) {
-      return res.json().then(function (json) {
+      return res.text().then(function (text) {
+        var json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch (e) {
+          var errHtml = new Error('El servidor respondió HTML en vez de JSON. Recargá la página.');
+          errHtml.status = res.status;
+          throw errHtml;
+        }
         if (!res.ok) {
           var err = new Error((json && json.error) || ('HTTP ' + res.status));
           err.status = res.status;
@@ -225,6 +233,13 @@
         return json;
       });
     });
+  }
+
+  function userHasBitacora(user) {
+    if (!user || user.role === 'admin') return false;
+    // Si el API viejo no manda modules, asumir activo (user normal).
+    if (!user.modules) return true;
+    return !!user.modules.bitacora;
   }
 
   function authApi(action, body) {
@@ -1317,7 +1332,7 @@
             showLoginError('El admin solo gestiona usuarios en Contabilidad.');
             return;
           }
-          if (!(res.user && res.user.modules && res.user.modules.bitacora)) {
+          if (!userHasBitacora(res.user)) {
             showLoginError('No tenés Bitácora activa. Pedile al admin que te la active.');
             return;
           }
@@ -1326,8 +1341,8 @@
           authApi('track.module', { module: 'bitacora' }).catch(function () {});
           return loadData();
         })
-        .catch(function () {
-          showLoginError('Abrí http://localhost:8080/bitacora (no el archivo directo).');
+        .catch(function (err) {
+          showLoginError((err && err.message) || 'No se pudo iniciar sesión. Probá recargar.');
         });
     });
   }
