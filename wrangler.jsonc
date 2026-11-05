@@ -30,9 +30,9 @@
     "directory": "./public",
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "404-page",
-    // true: el Worker siempre corre primero (APIs + rewrites).
-    // Con ["/api/*"] a veces Assets respondía HTML 404 y el front veía <!DOCTYPE.
+    // none: no servir HTML 404 genérico que el front confunde con respuesta de API.
+    "not_found_handling": "none",
+    // true: el Worker SIEMPRE corre primero (APIs + rewrites /contabilidad /bitacora).
     "run_worker_first": true
   },
   "vars": {

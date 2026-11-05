@@ -5,8 +5,8 @@
   var TOKEN_KEY = 'exha_bitacora_token';
   var USER_KEY = 'exha_bitacora_user';
   var CONDO_COLORS_KEY = 'exha_bitacora_show_condo_colors';
-  var AUTH_API = '/api/eh-data';
-  var FOCO_API = '/api/foco';
+  var AUTH_API = (typeof location !== 'undefined' ? location.origin : '') + '/api/eh-data';
+  var FOCO_API = (typeof location !== 'undefined' ? location.origin : '') + '/api/foco';
 
   var COLUMNS = [
     { status: 'inbox', label: 'Bandeja' },
@@ -206,32 +206,51 @@
     );
   }
 
-  function post(url, action, body) {
+  function post(url, action, body, _attempt) {
+    var attempt = _attempt || 0;
     var payload = Object.assign({ action: action }, body || {});
-    var headers = { 'Content-Type': 'application/json' };
+    var headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Cache-Control': 'no-store'
+    };
     var token = getToken();
     if (token) headers['X-Session-Token'] = token;
     return fetch(url, {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      cache: 'no-store'
     }).then(function (res) {
       return res.text().then(function (text) {
+        var trimmed = String(text || '').trim();
         var json = null;
         try {
-          json = text ? JSON.parse(text) : null;
+          json = trimmed ? JSON.parse(trimmed) : null;
         } catch (e) {
-          var errHtml = new Error('El servidor respondió HTML en vez de JSON. Recargá la página.');
+          var errHtml = new Error(
+            'Cloudflare devolvió HTML en vez del API. Reintentá; si sigue, usá el dominio app (no workers.dev).'
+          );
           errHtml.status = res.status;
+          errHtml.retryable = true;
           throw errHtml;
         }
         if (!res.ok) {
-          var err = new Error((json && json.error) || ('HTTP ' + res.status));
+          var err = new Error((json && (json.error || json.message)) || ('HTTP ' + res.status));
           err.status = res.status;
           throw err;
         }
         return json;
       });
+    }).catch(function (err) {
+      if (err && err.retryable && attempt < 1) {
+        return new Promise(function (resolve) {
+          setTimeout(resolve, 450);
+        }).then(function () {
+          return post(url, action, body, attempt + 1);
+        });
+      }
+      throw err;
     });
   }
 

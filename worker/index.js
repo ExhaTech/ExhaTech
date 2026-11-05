@@ -4,7 +4,12 @@
  */
 import { handleApi } from './api/router.js';
 import { resolvePublicPath } from './lib/paths.js';
-import { text } from './lib/http.js';
+import { json, text } from './lib/http.js';
+
+function isApiPath(pathname) {
+  const p = String(pathname || '').replace(/\/+$/, '') || '/';
+  return p === '/api' || p.startsWith('/api/');
+}
 
 export default {
   /**
@@ -15,27 +20,42 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ---- APIs (Workers) ----
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+    // ---- APIs: SIEMPRE JSON (nunca HTML de Assets / error pages internas) ----
+    if (isApiPath(url.pathname)) {
       try {
-        return await handleApi(request, env, ctx);
+        const res = await handleApi(request, env, ctx);
+        if (res) return res;
+        return json({ error: 'not found', path: url.pathname }, 404);
       } catch (err) {
         console.error('api error', err && err.message ? err.message : err);
-        return text('Internal error', 500);
+        return json({
+          error: 'internal_error',
+          message: err && err.message ? String(err.message) : 'Internal error',
+        }, 500);
       }
     }
 
     // ---- Estáticos + rewrites de subsitios ----
-    if (!env.ASSETS) {
-      return text('ASSETS binding missing — ¿corriste npm run cf:prepare?', 500);
-    }
+    try {
+      if (!env.ASSETS) {
+        return text('ASSETS binding missing — ¿corriste npm run cf:prepare?', 500);
+      }
 
-    const resolved = resolvePublicPath(url);
-    if (resolved.redirect) {
-      return Response.redirect(new URL(resolved.redirect, url.origin).toString(), 302);
-    }
+      const resolved = resolvePublicPath(url);
+      if (resolved.redirect) {
+        return Response.redirect(new URL(resolved.redirect, url.origin).toString(), 302);
+      }
 
-    const assetUrl = new URL(resolved.assetPath || '/', url.origin);
-    return env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+      const assetUrl = new URL(resolved.assetPath || '/', url.origin);
+      // GET limpio para assets (evita reenviar POST de formularios a estáticos)
+      const assetReq = new Request(assetUrl.toString(), {
+        method: 'GET',
+        headers: request.headers,
+      });
+      return env.ASSETS.fetch(assetReq);
+    } catch (err) {
+      console.error('asset error', err && err.message ? err.message : err);
+      return text('Asset error', 500);
+    }
   },
 };

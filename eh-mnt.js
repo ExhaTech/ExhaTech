@@ -6,8 +6,8 @@
   var USER_KEY = 'exha_budget_user';
   var SUMMARY_CUR_KEY = 'exha_budget_summary_cur';
   var VIEW_CUR_KEY = 'exha_budget_view_cur';
-  // Absoluto: si la URL es /contabilidad/ (con slash), un path relativo pega en HTML 404.
-  var API = '/api/eh-data';
+  // Absoluto al origin actual (workers.dev o dominio custom).
+  var API = (typeof location !== 'undefined' ? location.origin : '') + '/api/eh-data';
 
   var state = {
     user: null,
@@ -403,35 +403,60 @@
     return isNaN(n) ? NaN : n;
   }
 
-  function api(action, body) {
+  function parseApiResponse(res, text) {
+    var trimmed = String(text || '').trim();
+    var json = null;
+    try {
+      json = trimmed ? JSON.parse(trimmed) : null;
+    } catch (e) {
+      var looksHtml = trimmed.charAt(0) === '<' || /<!DOCTYPE|Sorry, you have been blocked/i.test(trimmed);
+      var errHtml = new Error(
+        looksHtml
+          ? 'Cloudflare devolvió una página HTML (bloqueo/error de red) en vez del API. Esperá unos segundos y reintentá; si sigue, usá el dominio app (no workers.dev).'
+          : 'Respuesta no-JSON del servidor (HTTP ' + res.status + '). Probá de nuevo.'
+      );
+      errHtml.status = res.status;
+      errHtml.retryable = true;
+      throw errHtml;
+    }
+    if (!res.ok) {
+      var err = new Error((json && (json.error || json.message)) || ('HTTP ' + res.status));
+      err.status = res.status;
+      err.json = json;
+      throw err;
+    }
+    return json;
+  }
+
+  function api(action, body, _attempt) {
+    var attempt = _attempt || 0;
     var payload = Object.assign({ action: action }, body || {});
-    var headers = { 'Content-Type': 'application/json' };
+    var headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Cache-Control': 'no-store'
+    };
     var token = getToken();
     if (token) headers['X-Session-Token'] = token;
     return fetch(API, {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      cache: 'no-store'
     }).then(function (res) {
       return res.text().then(function (text) {
-        var json = null;
-        try {
-          json = text ? JSON.parse(text) : null;
-        } catch (e) {
-          var errHtml = new Error(
-            'El servidor respondió HTML en vez de JSON (¿ruta API?). Probá recargar.'
-          );
-          errHtml.status = res.status;
-          throw errHtml;
-        }
-        if (!res.ok) {
-          var err = new Error((json && json.error) || ('HTTP ' + res.status));
-          err.status = res.status;
-          err.json = json;
-          throw err;
-        }
-        return json;
+        return parseApiResponse(res, text);
       });
+    }).catch(function (err) {
+      // Un reintento corto: a veces workers.dev / edge devuelve HTML de anti-abuse.
+      if (err && err.retryable && attempt < 1) {
+        return new Promise(function (resolve) {
+          setTimeout(resolve, 450);
+        }).then(function () {
+          return api(action, body, attempt + 1);
+        });
+      }
+      throw err;
     });
   }
 
