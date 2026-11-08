@@ -18,3 +18,4 @@ dist/
 public/*
 !public/.gitkeep
 !public/.assetsignore
+pages-out/

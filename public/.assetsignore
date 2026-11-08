@@ -1,0 +1,4 @@
+# No subir basura al CDN
+.DS_Store
+Thumbs.db
+*.map

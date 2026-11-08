@@ -1,150 +1,99 @@
-# Deploy ExhaTech en Cloudflare Workers (DevOps)
+# Deploy ExhaTech en Cloudflare (DevOps)
 
-Un solo Worker sirve:
+## Arquitectura
+
+| Host | Producto | Qué sirve |
+|------|----------|-----------|
+| `exhatech.com` | **Pages** → proyecto `exhatech` | Sitio marketing |
+| `app.exhatech.com` | **Worker** → `exhatech` | Contabilidad, Bitácora, APIs |
+
+```
+exhatech.com          → Cloudflare Pages (Git → main)
+app.exhatech.com      → Worker exhatech (Actions → wrangler deploy)
+```
+
+### Rutas del Worker (`app.exhatech.com`)
 
 | Ruta | Qué es |
 |------|--------|
-| `/` | Sitio marketing |
-| `/contabilidad` | Módulo Contabilidad (UI) |
-| `/bitacora` | Módulo Bitácora (UI) |
+| `/` | Redirect → `/contabilidad` |
+| `/contabilidad` | UI Contabilidad (`eh-mnt.html`) |
+| `/bitacora` | UI Bitácora (`foco.html`) |
 | `/api/health` | Healthcheck |
-| `/api/eh-data` | API Contabilidad en Workers |
-| `/api/foco` | API Bitácora en Workers |
+| `/api/eh-data` | API Contabilidad |
+| `/api/foco` | API Bitácora |
 
-Datos sensibles: **D1** (usuarios/sesiones) + **R2** (JSON por usuario, cifrado con secret).  
+Datos sensibles: **D1** (usuarios/sesiones) + **R2** (JSON por usuario, cifrado).  
 Credenciales: **Wrangler Secrets**, nunca en Git ni en `wrangler.jsonc`.
-
-`DATA_ENCRYPTION_KEY` cumple el mismo rol que `data/budget.master.local` en Node local: sin la misma llave no se pueden leer los presupuestos cifrados.
-
-## Prerrequisitos
-
-- Node 20+
-- Cuenta Cloudflare + dominio (ej. `exhatech.com`)
-- `npx wrangler login` (o API token en CI: `CLOUDFLARE_API_TOKEN`)
 
 ## Primera vez (cuenta)
 
 ```bash
 cd ExhaTech
 npm install
-
-# 1) Assets estáticos
 npm run cf:prepare
 
-# 2) Base D1
-npx wrangler d1 create exhatech-db
-# Pegar el database_id en wrangler.jsonc → d1_databases[0].database_id
-
-# 3) Bucket R2
+# D1 + R2 (si aún no existen)
+npx wrangler d1 create exhatech-db   # pegar database_id en wrangler.jsonc
 npx wrangler r2 bucket create exhatech-data
-
-# 4) Migraciones
 npx wrangler d1 migrations apply exhatech-db --remote
 
-# 5) Secrets (interactivo; no loguear valores)
+# Secrets (interactivo; no loguear valores)
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put DATA_ENCRYPTION_KEY
-# opcional: primer admin automático si D1 arranca vacío
+# opcional:
 npx wrangler secret put SEED_ADMIN_PASSWORD
-```
 
-## Migración de usuarios, presupuestos y Bitácora
-
-- Usuarios Node viven en `data/users.local.json`; migrarlos a D1 antes del corte.
-- Presupuestos Node viven en `data/budgets/*.json`; migrarlos a R2 conservando la misma llave maestra.
-- Bitácora Node vive en `data/foco/*.json`; migrarla a R2 usando objetos `foco/{userId}.json`.
-- Los blobs de Bitácora también deben quedar cifrados con `DATA_ENCRYPTION_KEY` porque contienen PII.
-- Para crear un `INSERT` compatible de un usuario admin:
-
-```bash
-node scripts/cf-seed-admin.mjs --username admin --password TU_CLAVE > seed-admin.sql
-npx wrangler d1 execute exhatech-db --remote --file seed-admin.sql
-```
-
-- Si preferís seed automático solo para el primer arranque, definí `SEED_ADMIN_PASSWORD` y hacé el primer login con `admin`.
-
-## Deploy
-
-```bash
-npm run cf:prepare
+# Deploy Worker + custom domain app.exhatech.com (definido en wrangler.jsonc)
 npm run cf:deploy
 ```
 
-Dry-run (empaquetado sin publicar):
-
-```bash
-npm run cf:deploy:dry
-```
+Dashboard (Yurguen): **Workers → `exhatech` → Custom Domains → agregar `app.exhatech.com`**.
 
 ## CI — publicación automática (push a `main`)
 
-**Producción del sitio = Cloudflare Pages**  
+### Sitio marketing → Pages
+
 Proyecto: [Pages → exhatech](https://dash.cloudflare.com/bfe1e7148da1ca9e655e96c5c9c7a02e/pages/view/exhatech)
 
-Ya está conectado al repo GitHub `ExhaTech/ExhaTech`. Cada push a `main` publica solo a Pages (`exhatech.com` / `exhatech.pages.dev`). No hace falta un workflow de GitHub Actions para el sitio.
+- Conectado al repo GitHub `ExhaTech/ExhaTech`
+- Build: `node scripts/prepare-pages.mjs`
+- Output: `pages-out` (solo marketing; sin Contabilidad/Bitácora)
 
-> No usar `wrangler deploy` (Workers) para el sitio público: eso crea un Worker aparte. El Worker (`npm run cf:deploy`) queda solo para Contabilidad/Bitácora/APIs cuando se migre ese stack.
+### App → Worker
 
-## Dominio custom
+Workflow: `.github/workflows/deploy-app.yml`
 
-En Dashboard → **Pages → exhatech → Custom domains**:
+1. `npm ci` + `npm run cf:prepare`
+2. `wrangler deploy` → Worker `exhatech` + dominio `app.exhatech.com`
 
-- `exhatech.com` (y `www` si aplica)
-- DNS proxied (naranja) hacia el proyecto Pages
+Secrets de GitHub Actions:
 
-No apuntar el apex al Worker; el sitio vive en Pages.
+| Secret | Valor |
+|--------|--------|
+| `CLOUDFLARE_ACCOUNT_ID` | Account ID |
+| `CLOUDFLARE_API_TOKEN` | Token **Edit Cloudflare Workers** (+ Pages Edit si hace falta) |
 
-## Local (Workers)
+Secrets del Worker (`SESSION_SECRET`, `DATA_ENCRYPTION_KEY`) **no** van en GitHub: `wrangler secret put`.
+
+## Local
 
 ```bash
 cp .dev.vars.example .dev.vars
-# editar secrets locales
 npm run cf:prepare
 npx wrangler d1 migrations apply exhatech-db --local
 npm run cf:dev
 ```
 
-Health: `http://127.0.0.1:8787/api/health`
+- Contabilidad: `http://127.0.0.1:8787/contabilidad`
+- Bitácora: `http://127.0.0.1:8787/bitacora`
+- Health: `http://127.0.0.1:8787/api/health`
 
-Contabilidad Worker: `http://127.0.0.1:8787/contabilidad`  
-Bitácora Worker: `http://127.0.0.1:8787/bitacora`
+Node legacy: `npm start` → `http://localhost:8080/contabilidad`
 
-## Local (Node legacy)
+## Seguridad
 
-Sigue disponible para compatibilidad local:
-
-```bash
-npm start
-# http://localhost:8080/contabilidad
-# http://localhost:8080/bitacora
-```
-
-## Seguridad (checklist)
-
-- [ ] `data/*.local.json`, `.dev.vars`, claves AES **no** están en el repo
+- [ ] `data/*.local.json`, `.dev.vars`, claves AES **no** van al repo
 - [ ] Secrets solo vía `wrangler secret put` / CI secret store
-- [ ] R2 bucket privado (sin acceso público)
-- [ ] D1 sin exposición HTTP directa
-- [ ] `/api/health` no revela valores de secrets (solo booleans)
-- [ ] Tras migrar APIs: rotar `SESSION_SECRET` si hubo leak previo
-
-## Estructura de código
-
-```
-worker/
-  index.js           # entry fetch
-  api/router.js      # /api/*
-  api/health.js
-  lib/http.js
-  lib/paths.js       # /contabilidad → eh-mnt.html, etc.
-migrations/          # D1
-scripts/prepare-cf-assets.mjs
-public/              # generado (no editar a mano)
-wrangler.jsonc
-```
-
-## Estado actual
-
-1. Auth + Contabilidad ya viven en Workers con D1/R2  
-2. Bitácora ya vive en Workers y guarda en R2 bajo `foco/{userId}.json`  
-3. `server.js` / `npm start` se mantienen para desarrollo local y compatibilidad
+- [ ] R2 privado; D1 sin HTTP directo
+- [ ] Paneles no se publican en Pages (`pages-out` solo marketing)

@@ -1,16 +1,9 @@
 /**
- * Yurguen / DevOps: Worker único — sitio + Contabilidad + Bitácora + APIs.
- * Secrets NUNCA van acá: usar `wrangler secret put` o `.dev.vars` (local).
+ * Yurguen / DevOps: Worker de APP (Contabilidad + Bitácora + APIs).
+ * Dominio: app.exhatech.com
+ * Sitio marketing: Cloudflare Pages (exhatech.com) — no este Worker.
  *
- * Antes del primer deploy:
- *   1) npm run cf:prepare
- *   2) wrangler d1 create exhatech-db  → pegar database_id abajo
- *   3) wrangler r2 bucket create exhatech-data
- *   4) wrangler secret put SESSION_SECRET
- *   5) wrangler secret put DATA_ENCRYPTION_KEY   (AES para JSON sensibles)
- *      opcional: wrangler secret put SEED_ADMIN_PASSWORD
- *   6) wrangler d1 migrations apply exhatech-db --remote
- *   7) npm run cf:deploy
+ * Secrets NUNCA van acá: `wrangler secret put` o `.dev.vars` (local).
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -20,6 +13,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": true,
+  "routes": [
+    { "pattern": "app.exhatech.com", "custom_domain": true }
+  ],
   "observability": {
     "enabled": true,
     "traces": {
@@ -43,7 +39,6 @@
     {
       "binding": "DB",
       "database_name": "exhatech-db",
-      // DevOps: reemplazar tras `wrangler d1 create exhatech-db`
       "database_id": "523ca9f9-20f9-4b1e-b248-144d43eee5a8",
       "migrations_dir": "migrations"
     }

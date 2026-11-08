@@ -1,6 +1,6 @@
 /**
  * Reescrituras de URL pública → archivo estático (mismo mapa que server.js Node).
- * DevOps: agregar aquí cualquier subsitio nuevo.
+ * App host: app.exhatech.com (Contabilidad + Bitácora).
  */
 const PUBLIC_PATH_MAP = {
   '/contabilidad': '/eh-mnt.html',
@@ -9,7 +9,8 @@ const PUBLIC_PATH_MAP = {
   '/bitacora': '/foco.html',
   '/bitacora.js': '/foco.js',
   '/bitacora.css': '/foco.css',
-  '/foco': '/bitacora', // redirect legacy
+  '/eh-mnt': '/contabilidad',
+  '/foco': '/bitacora',
 };
 
 /**
@@ -19,7 +20,16 @@ const PUBLIC_PATH_MAP = {
 export function resolvePublicPath(url) {
   let pathname = url.pathname.replace(/\/+$/, '') || '/';
 
-  if (pathname === '/foco') {
+  // Raíz de la app → Contabilidad
+  if (pathname === '/') {
+    return { redirect: '/contabilidad' };
+  }
+
+  // Paths legacy de archivos → rutas amigables
+  if (pathname === '/eh-mnt' || pathname === '/eh-mnt.html') {
+    return { redirect: '/contabilidad' };
+  }
+  if (pathname === '/foco' || pathname === '/foco.html') {
     return { redirect: '/bitacora' };
   }
 
@@ -31,5 +41,5 @@ export function resolvePublicPath(url) {
     return { assetPath: mapped };
   }
 
-  return { assetPath: pathname === '/' ? '/index.html' : pathname };
+  return { assetPath: pathname };
 }

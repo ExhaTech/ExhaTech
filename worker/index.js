@@ -1,6 +1,7 @@
 /**
- * ExhaTech — Cloudflare Worker
- * Sirve assets (sitio + Contabilidad + Bitácora) y APIs bajo /api/*.
+ * ExhaTech — Cloudflare Worker (app.exhatech.com)
+ * Contabilidad + Bitácora + APIs bajo /api/*.
+ * Marketing vive en Cloudflare Pages (exhatech.com).
  */
 import { handleApi } from './api/router.js';
 import { resolvePublicPath } from './lib/paths.js';
