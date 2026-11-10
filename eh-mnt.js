@@ -878,6 +878,28 @@
     }
   }
 
+  /** Suma ingresos/egresos en ₡ de una lista de ejecuciones (respeta filtros). */
+  function sumExecutionRowsCrc(rows) {
+    var rate = currentFxRate();
+    var income = 0;
+    var expense = 0;
+    (rows || []).forEach(function (ex) {
+      var crc = toCrcLocal(ex.amount, ex.currency, rate);
+      if (ex.type === 'income') income += crc;
+      else expense += crc;
+    });
+    return { income: income, expense: expense, balance: income - expense };
+  }
+
+  function updateExeStatCards(rows) {
+    var tot = sumExecutionRowsCrc(rows);
+    var elExeIn = document.getElementById('exeStatIncome');
+    var elExeEx = document.getElementById('exeStatExpense');
+    if (elExeIn) elExeIn.textContent = formatViewMoney(tot.income);
+    if (elExeEx) elExeEx.textContent = formatViewMoney(tot.expense);
+    setBalanceCard('exeStatBalance', tot.balance, null, null, null, true);
+  }
+
   /** Totales arriba en Presupuesto / Ejecución (misma moneda que gráficos) */
   function renderPanelTotals() {
     var b = state.budget;
@@ -886,9 +908,6 @@
     var planInc = Number(s.plannedIncome) || 0;
     var planExp = Number(s.plannedExpense) || 0;
     var planBal = Number(s.plannedBalance) || 0;
-    var actInc = Number(s.actualIncome) || 0;
-    var actExp = Number(s.actualExpense) || 0;
-    var actBal = Number(s.actualBalance) || 0;
 
     var elPlanIn = document.getElementById('planStatIncome');
     var elPlanEx = document.getElementById('planStatExpense');
@@ -896,11 +915,9 @@
     if (elPlanEx) elPlanEx.textContent = formatViewMoney(planExp);
     setBalanceCard('planStatBalance', planBal, 'planStatBalanceLbl', 'Margen', 'Sobregiro', true);
 
-    var elExeIn = document.getElementById('exeStatIncome');
-    var elExeEx = document.getElementById('exeStatExpense');
-    if (elExeIn) elExeIn.textContent = formatViewMoney(actInc);
-    if (elExeEx) elExeEx.textContent = formatViewMoney(actExp);
-    setBalanceCard('exeStatBalance', actBal, null, null, null, true);
+    // Ejecución: las tarjetas siguen el filtro actual (si hay)
+    var exeRows = ((b.period && b.period.executions) || []).filter(executionMatchesFilters);
+    updateExeStatCards(exeRows);
 
     syncCurrencyToggles();
   }
@@ -1008,8 +1025,8 @@
     renderLoans();
     renderPlan();
     renderPaymentTypes();
+    fillExeFilterOptions();
     renderExecution();
-    renderHistory();
   }
 
   function renderPaymentTypes() {
@@ -1272,21 +1289,27 @@
       planLineId: '',
       paymentTypeId: ''
     };
-    fillExeFilters();
+    syncExeFilterValues();
     renderExecution();
   }
 
-  function fillExeFilters() {
+  function setSelectOptions(sel, html, selectedId) {
+    if (!sel) return;
+    sel.innerHTML = html;
+    if (selectedId && Array.prototype.some.call(sel.options, function (o) { return o.value === selectedId; })) {
+      sel.value = selectedId;
+    } else {
+      sel.value = '';
+    }
+  }
+
+  /** Arma las opciones de filtros (solo cuando cambia el budget, no en cada click de filtro). */
+  function fillExeFilterOptions() {
     if (!state.budget || !state.budget.period) return;
     var f = state.exeFilters || {};
-    var desdeEl = document.getElementById('exeFilterDesde');
-    var hastaEl = document.getElementById('exeFilterHasta');
     var catEl = document.getElementById('exeFilterCat');
     var planEl = document.getElementById('exeFilterPlan');
     var payEl = document.getElementById('exeFilterPay');
-
-    if (desdeEl) desdeEl.value = f.desde || '';
-    if (hastaEl) hastaEl.value = f.hasta || '';
 
     if (catEl) {
       var cats = (state.budget.categories || []).slice().sort(function (a, b) {
@@ -1295,39 +1318,49 @@
       var catOpts = '<option value="">Todas</option>' + cats.map(function (c) {
         return '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
       }).join('');
-      catEl.innerHTML = catOpts;
-      if (f.categoryId && Array.prototype.some.call(catEl.options, function (o) { return o.value === f.categoryId; })) {
-        catEl.value = f.categoryId;
-      } else {
-        catEl.value = '';
-        f.categoryId = '';
-      }
+      setSelectOptions(catEl, catOpts, f.categoryId || '');
+      if (!catEl.value) f.categoryId = '';
     }
 
     if (planEl) {
-      var lines = f.categoryId
-        ? planLinesForCategory(f.categoryId)
-        : (((state.budget.period && state.budget.period.budget) || []).slice().sort(function (a, b) {
-          var ao = Number(a.sortOrder);
-          var bo = Number(b.sortOrder);
-          if (isNaN(ao)) ao = 9999;
-          if (isNaN(bo)) bo = 9999;
-          if (ao !== bo) return ao - bo;
-          return String(a.id || '').localeCompare(String(b.id || ''));
-        }));
+      // Independiente de categoría: todas las líneas del ciclo + huérfanas usadas en ejecución
+      var byId = {};
+      ((state.budget.period && state.budget.period.budget) || []).forEach(function (line) {
+        if (line && line.id) byId[line.id] = line;
+      });
+      ((state.budget.period && state.budget.period.executions) || []).forEach(function (ex) {
+        var id = String(ex.planLineId || '');
+        if (!id || byId[id]) return;
+        byId[id] = {
+          id: id,
+          categoryId: ex.categoryId || null,
+          tag: ex.planLineTag || '',
+          label: ex.planLineTag || '',
+          planned: null,
+          currency: 'CRC'
+        };
+      });
+      var lines = Object.keys(byId).map(function (id) { return byId[id]; }).sort(function (a, b) {
+        var an = (catById(a.categoryId) || {}).name || '';
+        var bn = (catById(b.categoryId) || {}).name || '';
+        var byCat = String(an).localeCompare(String(bn), 'es');
+        if (byCat) return byCat;
+        var ao = Number(a.sortOrder);
+        var bo = Number(b.sortOrder);
+        if (isNaN(ao)) ao = 9999;
+        if (isNaN(bo)) bo = 9999;
+        if (ao !== bo) return ao - bo;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
       var planOpts = '<option value="">Todas</option>' + lines.map(function (line) {
         var cat = catById(line.categoryId);
         var label = planLineLabel(line);
-        if (!f.categoryId && cat) label = cat.name + ' · ' + label;
+        if (line.planned == null && line.tag) label = String(line.tag);
+        if (cat) label = cat.name + ' · ' + label;
         return '<option value="' + escapeHtml(line.id) + '">' + escapeHtml(label) + '</option>';
       }).join('');
-      planEl.innerHTML = planOpts;
-      if (f.planLineId && Array.prototype.some.call(planEl.options, function (o) { return o.value === f.planLineId; })) {
-        planEl.value = f.planLineId;
-      } else {
-        planEl.value = '';
-        f.planLineId = '';
-      }
+      setSelectOptions(planEl, planOpts, f.planLineId || '');
+      if (!planEl.value) f.planLineId = '';
     }
 
     if (payEl) {
@@ -1337,14 +1370,25 @@
       var payOpts = '<option value="">Todos</option>' + pays.map(function (pt) {
         return '<option value="' + escapeHtml(pt.id) + '">' + escapeHtml(pt.name) + '</option>';
       }).join('');
-      payEl.innerHTML = payOpts;
-      if (f.paymentTypeId && Array.prototype.some.call(payEl.options, function (o) { return o.value === f.paymentTypeId; })) {
-        payEl.value = f.paymentTypeId;
-      } else {
-        payEl.value = '';
-        f.paymentTypeId = '';
-      }
+      setSelectOptions(payEl, payOpts, f.paymentTypeId || '');
+      if (!payEl.value) f.paymentTypeId = '';
     }
+
+    syncExeFilterValues();
+  }
+
+  function syncExeFilterValues() {
+    var f = state.exeFilters || {};
+    var desdeEl = document.getElementById('exeFilterDesde');
+    var hastaEl = document.getElementById('exeFilterHasta');
+    var catEl = document.getElementById('exeFilterCat');
+    var planEl = document.getElementById('exeFilterPlan');
+    var payEl = document.getElementById('exeFilterPay');
+    if (desdeEl) desdeEl.value = f.desde || '';
+    if (hastaEl) hastaEl.value = f.hasta || '';
+    if (catEl) catEl.value = f.categoryId || '';
+    if (planEl) planEl.value = f.planLineId || '';
+    if (payEl) payEl.value = f.paymentTypeId || '';
   }
 
   function executionMatchesFilters(ex) {
@@ -1354,27 +1398,29 @@
     if (f.hasta && date && date > f.hasta) return false;
     if (f.desde && !date) return false;
     if (f.hasta && !date) return false;
-    if (f.categoryId && String(ex.categoryId || '') !== f.categoryId) return false;
-    if (f.planLineId && String(ex.planLineId || '') !== f.planLineId) return false;
-    if (f.paymentTypeId && String(ex.paymentTypeId || '') !== f.paymentTypeId) return false;
+    if (f.categoryId && String(ex.categoryId || '') !== String(f.categoryId)) return false;
+    if (f.planLineId && String(ex.planLineId || '') !== String(f.planLineId)) return false;
+    if (f.paymentTypeId && String(ex.paymentTypeId || '') !== String(f.paymentTypeId)) return false;
     return true;
   }
 
   function renderExecution() {
     var tbody = document.getElementById('exeBody');
     if (!tbody || !state.budget || !state.budget.period) return;
-    fillExeFilters();
+    // No regenerar <select> acá: eso borraba el filtro de línea al hacer change.
+    syncExeFilterValues();
     var locked = periodLocked();
     var allRows = state.budget.period.executions || [];
     var rows = allRows.filter(executionMatchesFilters).slice().sort(function (a, b) {
       return String(b.date || '').localeCompare(String(a.date || ''));
     });
+    updateExeStatCards(rows);
     var hint = document.getElementById('exeFilterHint');
     if (hint) {
       if (exeFiltersActive()) {
         hint.hidden = false;
         hint.textContent = 'Mostrando ' + rows.length + ' de ' + allRows.length +
-          ' movimiento(s). Los totales de arriba siguen siendo del ciclo completo.';
+          ' movimiento(s). Las tarjetas de arriba reflejan el filtro.';
       } else {
         hint.hidden = true;
         hint.textContent = '';
@@ -1410,44 +1456,6 @@
         if (ex) openExeModal(ex);
       });
     });
-  }
-
-  function fillHistCycleFilter() {
-    var sel = document.getElementById('histCycleFilter');
-    if (!sel || !state.budget) return;
-    var prev = sel.value;
-    var cycles = state.budget.cycles || [];
-    var opts = '<option value="">Todos (últimos 12)</option>' + cycles.map(function (c) {
-      return '<option value="' + c.key + '">' + formatCycleLabel(c) + '</option>';
-    }).join('');
-    sel.innerHTML = opts;
-    if (prev && Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) {
-      sel.value = prev;
-    }
-  }
-
-  function renderHistory() {
-    var tbody = document.getElementById('histBody');
-    if (!tbody || !state.budget) return;
-    fillHistCycleFilter();
-    var filterKey = (document.getElementById('histCycleFilter') || {}).value || '';
-    var rows = (state.budget.history || []).filter(function (h) {
-      if (h.type === 'income') return false;
-      if (filterKey && h.cycleKey !== filterKey) return false;
-      return true;
-    });
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Sin gastos en este filtro.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(function (h) {
-      return '<tr>' +
-        '<td data-label="Fecha">' + escapeHtml(h.date || '') + '</td>' +
-        '<td data-label="Ciclo">' + escapeHtml((h.startDate || '') + ' → ' + (h.endDate || '')) + '</td>' +
-        '<td data-label="Categoría">' + escapeHtml(h.name || catName(h.categoryId)) + '</td>' +
-        '<td data-label="Monto">' + formatAmountWithBadge(h.amount, h.currency) + '</td>' +
-        '<td data-label="En ₡">' + formatMoney(h.amountCrc != null ? h.amountCrc : h.amount) + '</td></tr>';
-    }).join('');
   }
 
   function openModal(title, html, mode, id, canDelete) {
@@ -2259,20 +2267,9 @@
   });
   var btnCloseCycle = document.getElementById('btnCloseCycle');
   if (btnCloseCycle) btnCloseCycle.addEventListener('click', closeCurrentCycle);
-  var histCycleFilter = document.getElementById('histCycleFilter');
-  if (histCycleFilter) {
-    histCycleFilter.addEventListener('change', function () {
-      renderHistory();
-    });
-  }
   function onExeFilterChange() {
     readExeFiltersFromDom();
-    // Si cambia categoría, la línea debe revalidarse contra ese subset
-    var catChanged = this && this.id === 'exeFilterCat';
-    if (catChanged) {
-      state.exeFilters.planLineId = '';
-      fillExeFilters();
-    }
+    // Categoría y línea son filtros independientes (AND si ambos están activos)
     renderExecution();
   }
   ['exeFilterDesde', 'exeFilterHasta', 'exeFilterCat', 'exeFilterPlan', 'exeFilterPay'].forEach(function (id) {
