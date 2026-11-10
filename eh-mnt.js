@@ -27,7 +27,9 @@
       categoryId: '',
       planLineId: '',
       paymentTypeId: ''
-    }
+    },
+    // Evita clicks ↑/↓ en paralelo (cada save cifra con scrypt y a veces Cloudflare responde 503)
+    reorderBusy: false
   };
 
   var loginView = document.getElementById('adminLogin');
@@ -361,13 +363,32 @@
       alert(lockMessage());
       return;
     }
+    if (state.reorderBusy) return;
+    state.reorderBusy = true;
     api('budget.plan.move', {
       id: lineId,
       direction: direction,
       cycleKey: currentCycleKey()
     })
-      .then(function () { return loadBudget(); })
-      .catch(function (err) { alert(err.message); });
+      .then(function (res) {
+        if (res.period && state.budget) {
+          state.budget.period = res.period;
+          if (res.summary) state.budget.summary = res.summary;
+        }
+        renderPlan();
+        renderPanelTotals();
+      })
+      .catch(function (err) {
+        var msg = err && err.message ? String(err.message) : '';
+        if (/503|502|504|429/i.test(msg)) {
+          alert('El servidor está ocupado ordenando. Esperá un segundo y reintentá.');
+          return;
+        }
+        alert(msg || 'No se pudo reordenar');
+      })
+      .finally(function () {
+        state.reorderBusy = false;
+      });
   }
 
   function categoryStatsCrc(categoryId) {
@@ -1147,12 +1168,26 @@
   }
 
   function moveCategory(catId, direction) {
+    if (state.reorderBusy) return;
+    state.reorderBusy = true;
     api('budget.category.move', { id: catId, direction: direction })
       .then(function (res) {
         if (res.categories && state.budget) state.budget.categories = res.categories;
-        return loadBudget();
+        // Sin loadBudget extra: evita un segundo descifrado (menos 503 en Workers).
+        renderPlan();
+        renderPanelTotals();
       })
-      .catch(function (err) { alert(err.message); });
+      .catch(function (err) {
+        var msg = err && err.message ? String(err.message) : '';
+        if (/503|502|504|429/i.test(msg)) {
+          alert('El servidor está ocupado ordenando. Esperá un segundo y reintentá.');
+          return;
+        }
+        alert(msg || 'No se pudo reordenar');
+      })
+      .finally(function () {
+        state.reorderBusy = false;
+      });
   }
 
   function renderPlan() {
