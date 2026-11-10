@@ -73,6 +73,7 @@
       <button type="button" class="active" data-panel="resumen">Resumen</button>
       <button type="button" data-panel="ejecucion">Ejecución</button>
       <button type="button" data-panel="presupuesto">Presupuesto</button>
+      <button type="button" data-panel="catalogos">Catálogos</button>
       <button type="button" data-panel="historico">Histórico</button>
       <button type="button" data-panel="prestamos">Préstamos</button>
       <button type="button" data-panel="cuenta">Mi cuenta</button>
@@ -160,9 +161,35 @@
             </div>
           </div>
           <p class="panel-hint">Registrá lo que realmente pasó este ciclo. Al cerrarlo queda solo lectura y se abre el siguiente.</p>
+          <div class="exe-filters" id="exeFilters">
+            <div class="exe-filters__field">
+              <label for="exeFilterDesde">Desde</label>
+              <input type="date" id="exeFilterDesde">
+            </div>
+            <div class="exe-filters__field">
+              <label for="exeFilterHasta">Hasta</label>
+              <input type="date" id="exeFilterHasta">
+            </div>
+            <div class="exe-filters__field">
+              <label for="exeFilterCat">Categoría</label>
+              <select id="exeFilterCat"></select>
+            </div>
+            <div class="exe-filters__field">
+              <label for="exeFilterPlan">Línea</label>
+              <select id="exeFilterPlan"></select>
+            </div>
+            <div class="exe-filters__field">
+              <label for="exeFilterPay">Tipo pago</label>
+              <select id="exeFilterPay"></select>
+            </div>
+            <div class="exe-filters__actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="btnClearExeFilters">Limpiar</button>
+            </div>
+          </div>
+          <p class="panel-hint" id="exeFilterHint" hidden></p>
           <div class="admin-table-wrap">
             <table class="admin-table admin-table--exe admin-table--stack">
-              <thead><tr><th>Fecha</th><th>Categoría</th><th>Tipo</th><th>Monto</th><th></th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Categoría</th><th>Línea</th><th>Tipo pago</th><th>Tipo</th><th>Monto</th><th></th></tr></thead>
               <tbody id="exeBody"></tbody>
             </table>
           </div>
@@ -194,6 +221,24 @@
           </div>
           <p class="panel-hint">Cada categoría puede tener varios presupuestos (con etiqueta opcional). Acá solo se arma el plan; lo ejecutado va en Ejecución.</p>
           <div id="planBody" class="cat-plan-list"></div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="panel-catalogos">
+        <div class="admin-card">
+          <div class="panel-head">
+            <h2>Tipos de pago</h2>
+            <div class="panel-head-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="btnNewPayType">+ Tipo de pago</button>
+            </div>
+          </div>
+          <p class="panel-hint">Catálogo para asociar (opcional) a cada movimiento en Ejecución. Si un tipo está en uso en el ciclo abierto, no se puede eliminar.</p>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-table--stack">
+              <thead><tr><th>Nombre</th><th></th></tr></thead>
+              <tbody id="payTypeBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

@@ -296,6 +296,7 @@ export async function handleEhData(request, env, body) {
         cycles: budgetStore.listCycles(budget),
         cycle,
         categories: budget.categories || [],
+        paymentTypes: budget.paymentTypes || [],
         loans: budget.loans || [],
         loanFxRate: budgetStore.referenceExchangeRate(budget),
         period,
@@ -609,8 +610,11 @@ export async function handleEhData(request, env, body) {
     if (!line) {
       return json({ error: 'Línea de presupuesto no encontrada' }, 404);
     }
-    // Etiqueta/línea de plan: se puede borrar aunque la categoría tenga ejecución.
-    // La categoría sí se protege en budget.category.delete.
+    try {
+      budgetStore.assertPlanLineDeletable(period, body.id);
+    } catch (e) {
+      return json({ error: e.message || 'Línea de presupuesto en uso' }, 400);
+    }
     period.budget = (period.budget || []).filter((b) => b.id !== body.id);
     await saveBudget(env, auth.ctx.user.id, budget);
     return json({
@@ -618,6 +622,59 @@ export async function handleEhData(request, env, body) {
       period,
       summary: budgetStore.periodSummary(budget, period),
     }, 200);
+  }
+
+  if (action === 'budget.paymentType.save') {
+    const auth = await requireAuth(request, env);
+    if (auth.errorResponse) return auth.errorResponse;
+    const name = String(body.name || '').trim();
+    if (!name) {
+      return json({ error: 'Nombre del tipo de pago obligatorio' }, 400);
+    }
+    const budget = await loadBudget(env, auth.ctx.user.id);
+    if (!Array.isArray(budget.paymentTypes)) budget.paymentTypes = [];
+    let saved = null;
+    if (body.id) {
+      saved = budget.paymentTypes.find((p) => p.id === body.id);
+      if (!saved) {
+        return json({ error: 'Tipo de pago no encontrado' }, 404);
+      }
+      saved.name = name;
+    } else {
+      const maxOrder = budget.paymentTypes.reduce(
+        (m, p) => Math.max(m, Number(p.sortOrder) || 0),
+        -1
+      );
+      saved = {
+        id: budgetStore.uid('pay'),
+        name,
+        sortOrder: maxOrder + 1,
+        createdAt: new Date().toISOString(),
+      };
+      budget.paymentTypes.push(saved);
+    }
+    await saveBudget(env, auth.ctx.user.id, budget);
+    return json({ ok: true, paymentTypes: budget.paymentTypes || [] }, 200);
+  }
+
+  if (action === 'budget.paymentType.delete') {
+    const auth = await requireAuth(request, env);
+    if (auth.errorResponse) return auth.errorResponse;
+    if (!body.id) {
+      return json({ error: 'Id de tipo de pago obligatorio' }, 400);
+    }
+    const budget = await loadBudget(env, auth.ctx.user.id);
+    if (!budgetStore.findPaymentType(budget, body.id)) {
+      return json({ error: 'Tipo de pago no encontrado' }, 404);
+    }
+    try {
+      budgetStore.assertPaymentTypeDeletable(budget, body.id);
+    } catch (e) {
+      return json({ error: e.message || 'Tipo de pago en uso' }, 400);
+    }
+    budget.paymentTypes = (budget.paymentTypes || []).filter((p) => p.id !== body.id);
+    await saveBudget(env, auth.ctx.user.id, budget);
+    return json({ ok: true, paymentTypes: budget.paymentTypes || [] }, 200);
   }
 
   if (action === 'budget.execution.save') {
@@ -633,6 +690,17 @@ export async function handleEhData(request, env, body) {
     if (!cat) {
       return json({ error: 'Categoría no encontrada' }, 404);
     }
+    const rawPayId = String(body.paymentTypeId || '').trim();
+    let paymentTypeId = null;
+    let paymentTypeName = '';
+    if (rawPayId) {
+      const pay = budgetStore.findPaymentType(budget, rawPayId);
+      if (!pay) {
+        return json({ error: 'Tipo de pago no encontrado' }, 404);
+      }
+      paymentTypeId = pay.id;
+      paymentTypeName = pay.name;
+    }
     const period = findActionPeriod(budget, body.cycleKey);
     if (!period) {
       return json({ error: 'Ciclo no encontrado' }, 404);
@@ -647,6 +715,20 @@ export async function handleEhData(request, env, body) {
     if (currency === 'USD' && !(Number(period.exchangeRate) > 0)) {
       return json({ error: 'Definí el tipo de cambio del ciclo antes de usar USD' }, 400);
     }
+    const rawPlanId = String(body.planLineId || '').trim();
+    let planLineId = null;
+    let planLineTag = '';
+    if (rawPlanId) {
+      const planLine = budgetStore.findPlanLine(period, rawPlanId);
+      if (!planLine) {
+        return json({ error: 'Línea de presupuesto no encontrada' }, 404);
+      }
+      if (String(planLine.categoryId) !== String(cat.id)) {
+        return json({ error: 'La línea de presupuesto no pertenece a esa categoría' }, 400);
+      }
+      planLineId = planLine.id;
+      planLineTag = budgetStore.planLineTagOf(planLine);
+    }
     if (!Array.isArray(period.executions)) period.executions = [];
     if (body.id) {
       const ex = period.executions.find((x) => x.id === body.id);
@@ -660,6 +742,10 @@ export async function handleEhData(request, env, body) {
       ex.currency = currency;
       ex.notes = String(body.notes || '').trim();
       ex.date = String(body.date || ex.date || period.startDate).slice(0, 10);
+      ex.paymentTypeId = paymentTypeId;
+      ex.paymentTypeName = paymentTypeName;
+      ex.planLineId = planLineId;
+      ex.planLineTag = planLineTag;
     } else {
       period.executions.push({
         id: budgetStore.uid('exe'),
@@ -670,6 +756,10 @@ export async function handleEhData(request, env, body) {
         currency,
         notes: String(body.notes || '').trim(),
         date: String(body.date || new Date().toISOString()).slice(0, 10),
+        paymentTypeId,
+        paymentTypeName,
+        planLineId,
+        planLineTag,
       });
     }
     await saveBudget(env, auth.ctx.user.id, budget);

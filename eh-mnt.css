@@ -863,6 +863,42 @@ img, svg, video, canvas, table {
   border-radius: 8px;
   border: 1px solid rgba(25, 114, 120, 0.25);
 }
+/* Yurguen: filtros del panel Ejecución (solo UI; no cambian los totales del ciclo) */
+.exe-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px 12px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(25, 114, 120, 0.06);
+  border: 1px solid rgba(25, 114, 120, 0.12);
+}
+.exe-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+  font-size: 0.85rem;
+}
+.exe-filters__field label {
+  color: #5a6a6b;
+  font-weight: 600;
+}
+.exe-filters__field input,
+.exe-filters__field select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(25, 114, 120, 0.25);
+  background: var(--white, #fff);
+  min-width: 150px;
+}
+.exe-filters__actions {
+  display: flex;
+  align-items: center;
+  padding-bottom: 1px;
+}
 .currency-field select {
   font-weight: 600;
 }
@@ -1135,6 +1171,16 @@ table.admin-table {
   }
   .hist-filter select {
     flex: 1;
+    min-width: 0;
+    width: 100%;
+  }
+  .exe-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .exe-filters__field,
+  .exe-filters__field input,
+  .exe-filters__field select {
     min-width: 0;
     width: 100%;
   }

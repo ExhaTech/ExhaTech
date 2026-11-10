@@ -723,6 +723,7 @@ const server = http.createServer(async (req, res) => {
             cycles: budgetStore.listCycles(budget),
             cycle,
             categories: budget.categories || [],
+            paymentTypes: budget.paymentTypes || [],
             loans: budget.loans || [],
             loanFxRate: budgetStore.referenceExchangeRate(budget),
             period,
@@ -1077,8 +1078,12 @@ const server = http.createServer(async (req, res) => {
           send(res, 404, { error: 'Línea de presupuesto no encontrada' });
           return;
         }
-        // Etiqueta/línea de plan: se puede borrar aunque la categoría tenga ejecución.
-        // La categoría sí se protege en budget.category.delete.
+        try {
+          budgetStore.assertPlanLineDeletable(period, body.id);
+        } catch (e) {
+          send(res, 400, { error: e.message || 'Línea de presupuesto en uso' });
+          return;
+        }
         period.budget = (period.budget || []).filter((b) => b.id !== body.id);
         budgetStore.saveBudget(ctx.user.id, budget);
         send(res, 200, {
@@ -1086,6 +1091,66 @@ const server = http.createServer(async (req, res) => {
           period,
           summary: budgetStore.periodSummary(budget, period),
         });
+        return;
+      }
+
+      if (action === 'budget.paymentType.save') {
+        const ctx = requireModuleUser(req, res, 'contabilidad');
+        if (!ctx) return;
+        const name = String(body.name || '').trim();
+        if (!name) {
+          send(res, 400, { error: 'Nombre del tipo de pago obligatorio' });
+          return;
+        }
+        const budget = budgetStore.loadBudget(ctx.user.id);
+        if (!Array.isArray(budget.paymentTypes)) budget.paymentTypes = [];
+        let saved = null;
+        if (body.id) {
+          saved = budget.paymentTypes.find((p) => p.id === body.id);
+          if (!saved) {
+            send(res, 404, { error: 'Tipo de pago no encontrado' });
+            return;
+          }
+          saved.name = name;
+        } else {
+          const maxOrder = budget.paymentTypes.reduce(
+            (m, p) => Math.max(m, Number(p.sortOrder) || 0),
+            -1
+          );
+          saved = {
+            id: budgetStore.uid('pay'),
+            name,
+            sortOrder: maxOrder + 1,
+            createdAt: new Date().toISOString(),
+          };
+          budget.paymentTypes.push(saved);
+        }
+        budgetStore.saveBudget(ctx.user.id, budget);
+        send(res, 200, { ok: true, paymentTypes: budget.paymentTypes || [] });
+        return;
+      }
+
+      if (action === 'budget.paymentType.delete') {
+        const ctx = requireModuleUser(req, res, 'contabilidad');
+        if (!ctx) return;
+        if (!body.id) {
+          send(res, 400, { error: 'Id de tipo de pago obligatorio' });
+          return;
+        }
+        const budget = budgetStore.loadBudget(ctx.user.id);
+        if (!budgetStore.findPaymentType(budget, body.id)) {
+          send(res, 404, { error: 'Tipo de pago no encontrado' });
+          return;
+        }
+        try {
+          budgetStore.assertPaymentTypeDeletable(budget, body.id);
+        } catch (e) {
+          send(res, 400, { error: e.message || 'Tipo de pago en uso' });
+          return;
+        }
+        budget.paymentTypes = (budget.paymentTypes || []).filter((p) => p.id !== body.id);
+        budgetStore.saveBudget(ctx.user.id, budget);
+        send(res, 200, { ok: true, paymentTypes: budget.paymentTypes || [] });
         return;
       }
 
@@ -1103,6 +1168,18 @@ const server = http.createServer(async (req, res) => {
         if (!cat) {
           send(res, 404, { error: 'Categoría no encontrada' });
           return;
+        }
+        const rawPayId = String(body.paymentTypeId || '').trim();
+        let paymentTypeId = null;
+        let paymentTypeName = '';
+        if (rawPayId) {
+          const pay = budgetStore.findPaymentType(budget, rawPayId);
+          if (!pay) {
+            send(res, 404, { error: 'Tipo de pago no encontrado' });
+            return;
+          }
+          paymentTypeId = pay.id;
+          paymentTypeName = pay.name;
         }
         const period = budgetStore.findPeriod(budget, body.cycleKey)
           || budgetStore.findPeriod(budget, budgetStore.resolveDefaultCycleKey(budget));
@@ -1122,6 +1199,22 @@ const server = http.createServer(async (req, res) => {
           send(res, 400, { error: 'Definí el tipo de cambio del ciclo antes de usar USD' });
           return;
         }
+        const rawPlanId = String(body.planLineId || '').trim();
+        let planLineId = null;
+        let planLineTag = '';
+        if (rawPlanId) {
+          const planLine = budgetStore.findPlanLine(period, rawPlanId);
+          if (!planLine) {
+            send(res, 404, { error: 'Línea de presupuesto no encontrada' });
+            return;
+          }
+          if (String(planLine.categoryId) !== String(cat.id)) {
+            send(res, 400, { error: 'La línea de presupuesto no pertenece a esa categoría' });
+            return;
+          }
+          planLineId = planLine.id;
+          planLineTag = budgetStore.planLineTagOf(planLine);
+        }
         if (!Array.isArray(period.executions)) period.executions = [];
         if (body.id) {
           const ex = period.executions.find((x) => x.id === body.id);
@@ -1136,6 +1229,10 @@ const server = http.createServer(async (req, res) => {
           ex.currency = currency;
           ex.notes = String(body.notes || '').trim();
           ex.date = String(body.date || ex.date || period.startDate).slice(0, 10);
+          ex.paymentTypeId = paymentTypeId;
+          ex.paymentTypeName = paymentTypeName;
+          ex.planLineId = planLineId;
+          ex.planLineTag = planLineTag;
         } else {
           period.executions.push({
             id: budgetStore.uid('exe'),
@@ -1146,6 +1243,10 @@ const server = http.createServer(async (req, res) => {
             currency,
             notes: String(body.notes || '').trim(),
             date: String(body.date || new Date().toISOString()).slice(0, 10),
+            paymentTypeId,
+            paymentTypeName,
+            planLineId,
+            planLineTag,
           });
         }
         budgetStore.saveBudget(ctx.user.id, budget);

@@ -19,7 +19,15 @@
     // Resumen: solo ₡ / $ (₡ por defecto)
     summaryCurrency: 'CRC',
     // Presupuesto + Ejecución: Oficial / ₡ / $ (Oficial por defecto)
-    viewCurrency: 'OFFICIAL'
+    viewCurrency: 'OFFICIAL',
+    // Filtros UI del panel Ejecución (no afectan totales del ciclo)
+    exeFilters: {
+      desde: '',
+      hasta: '',
+      categoryId: '',
+      planLineId: '',
+      paymentTypeId: ''
+    }
   };
 
   var loginView = document.getElementById('adminLogin');
@@ -304,6 +312,48 @@
         return String(a.id || '').localeCompare(String(b.id || ''));
       });
     return lines;
+  }
+
+  function planLineLabel(line) {
+    if (!line) return '—';
+    var tag = String(line.tag || line.label || line.planLabel || '').trim();
+    var amt = formatAmount(line.planned, line.currency);
+    return tag ? (tag + ' · ' + amt) : ('Sin etiqueta · ' + amt);
+  }
+
+  function planLineName(exOrId) {
+    if (exOrId && typeof exOrId === 'object') {
+      var lines = ((state.budget && state.budget.period && state.budget.period.budget) || []);
+      var found = lines.find(function (l) { return l.id === exOrId.planLineId; });
+      if (found) {
+        var tag = String(found.tag || found.label || found.planLabel || '').trim();
+        return tag || 'Sin etiqueta';
+      }
+      return exOrId.planLineTag || '—';
+    }
+    return '—';
+  }
+
+  function planLineOptionsHtml(categoryId, selectedId) {
+    var lines = planLinesForCategory(categoryId);
+    var opts = '<option value="">— Sin línea —</option>';
+    lines.forEach(function (line) {
+      var sel = selectedId && line.id === selectedId ? ' selected' : '';
+      opts += '<option value="' + escapeHtml(line.id) + '"' + sel + '>' +
+        escapeHtml(planLineLabel(line)) + '</option>';
+    });
+    return opts;
+  }
+
+  function refreshExePlanLineOptions(keepSelectedId) {
+    var catSel = document.getElementById('mExeCat');
+    var planSel = document.getElementById('mExePlan');
+    if (!catSel || !planSel) return;
+    var selected = keepSelectedId != null ? keepSelectedId : planSel.value;
+    planSel.innerHTML = planLineOptionsHtml(catSel.value, selected);
+    if (selected && !Array.prototype.some.call(planSel.options, function (o) { return o.value === selected; })) {
+      planSel.value = '';
+    }
   }
 
   function movePlanLine(lineId, direction) {
@@ -625,6 +675,31 @@
     return (state.budget.categories || []).find(function (x) { return x.id === id; }) || null;
   }
 
+  function paymentTypeById(id) {
+    if (!id || !state.budget) return null;
+    return (state.budget.paymentTypes || []).find(function (x) { return x.id === id; }) || null;
+  }
+
+  function paymentTypeName(exOrId) {
+    if (exOrId && typeof exOrId === 'object') {
+      var fromCat = paymentTypeById(exOrId.paymentTypeId);
+      if (fromCat) return fromCat.name;
+      return exOrId.paymentTypeName || '—';
+    }
+    var pt = paymentTypeById(exOrId);
+    return pt ? pt.name : '—';
+  }
+
+  function paymentTypeOptionsHtml(selectedId) {
+    var list = (state.budget && state.budget.paymentTypes) || [];
+    var opts = '<option value="">— Sin tipo —</option>';
+    list.forEach(function (pt) {
+      var sel = selectedId && pt.id === selectedId ? ' selected' : '';
+      opts += '<option value="' + escapeHtml(pt.id) + '"' + sel + '>' + escapeHtml(pt.name) + '</option>';
+    });
+    return opts;
+  }
+
 
   /* Yurguen: colores bien separados (egresos por categoría) */
   var PIE_COLORS = [
@@ -932,8 +1007,37 @@
 
     renderLoans();
     renderPlan();
+    renderPaymentTypes();
     renderExecution();
     renderHistory();
+  }
+
+  function renderPaymentTypes() {
+    var tbody = document.getElementById('payTypeBody');
+    if (!tbody || !state.budget) return;
+    var rows = (state.budget.paymentTypes || []).slice().sort(function (a, b) {
+      var ao = Number(a.sortOrder);
+      var bo = Number(b.sortOrder);
+      if (ao !== bo) return (isNaN(ao) ? 9999 : ao) - (isNaN(bo) ? 9999 : bo);
+      return String(a.name || '').localeCompare(String(b.name || ''), 'es');
+    });
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="2" class="empty-state">Sin tipos de pago. Creá efectivo, SINPE, tarjeta, etc.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function (pt) {
+      return '<tr>' +
+        '<td data-label="Nombre"><strong>' + escapeHtml(pt.name) + '</strong></td>' +
+        '<td data-label="">' +
+        '<button type="button" class="btn btn-outline btn-sm" data-edit-pay="' + escapeHtml(pt.id) + '">Editar</button>' +
+        '</td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-edit-pay]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var pt = paymentTypeById(btn.getAttribute('data-edit-pay'));
+        if (pt) openPayTypeModal(pt);
+      });
+    });
   }
 
 
@@ -1142,15 +1246,146 @@
     });
   }
 
+  function readExeFiltersFromDom() {
+    var desdeEl = document.getElementById('exeFilterDesde');
+    var hastaEl = document.getElementById('exeFilterHasta');
+    var catEl = document.getElementById('exeFilterCat');
+    var planEl = document.getElementById('exeFilterPlan');
+    var payEl = document.getElementById('exeFilterPay');
+    state.exeFilters.desde = desdeEl ? String(desdeEl.value || '') : '';
+    state.exeFilters.hasta = hastaEl ? String(hastaEl.value || '') : '';
+    state.exeFilters.categoryId = catEl ? String(catEl.value || '') : '';
+    state.exeFilters.planLineId = planEl ? String(planEl.value || '') : '';
+    state.exeFilters.paymentTypeId = payEl ? String(payEl.value || '') : '';
+  }
+
+  function exeFiltersActive() {
+    var f = state.exeFilters || {};
+    return !!(f.desde || f.hasta || f.categoryId || f.planLineId || f.paymentTypeId);
+  }
+
+  function clearExeFilters() {
+    state.exeFilters = {
+      desde: '',
+      hasta: '',
+      categoryId: '',
+      planLineId: '',
+      paymentTypeId: ''
+    };
+    fillExeFilters();
+    renderExecution();
+  }
+
+  function fillExeFilters() {
+    if (!state.budget || !state.budget.period) return;
+    var f = state.exeFilters || {};
+    var desdeEl = document.getElementById('exeFilterDesde');
+    var hastaEl = document.getElementById('exeFilterHasta');
+    var catEl = document.getElementById('exeFilterCat');
+    var planEl = document.getElementById('exeFilterPlan');
+    var payEl = document.getElementById('exeFilterPay');
+
+    if (desdeEl) desdeEl.value = f.desde || '';
+    if (hastaEl) hastaEl.value = f.hasta || '';
+
+    if (catEl) {
+      var cats = (state.budget.categories || []).slice().sort(function (a, b) {
+        return String(a.name || '').localeCompare(String(b.name || ''), 'es');
+      });
+      var catOpts = '<option value="">Todas</option>' + cats.map(function (c) {
+        return '<option value="' + escapeHtml(c.id) + '">' + escapeHtml(c.name) + '</option>';
+      }).join('');
+      catEl.innerHTML = catOpts;
+      if (f.categoryId && Array.prototype.some.call(catEl.options, function (o) { return o.value === f.categoryId; })) {
+        catEl.value = f.categoryId;
+      } else {
+        catEl.value = '';
+        f.categoryId = '';
+      }
+    }
+
+    if (planEl) {
+      var lines = f.categoryId
+        ? planLinesForCategory(f.categoryId)
+        : (((state.budget.period && state.budget.period.budget) || []).slice().sort(function (a, b) {
+          var ao = Number(a.sortOrder);
+          var bo = Number(b.sortOrder);
+          if (isNaN(ao)) ao = 9999;
+          if (isNaN(bo)) bo = 9999;
+          if (ao !== bo) return ao - bo;
+          return String(a.id || '').localeCompare(String(b.id || ''));
+        }));
+      var planOpts = '<option value="">Todas</option>' + lines.map(function (line) {
+        var cat = catById(line.categoryId);
+        var label = planLineLabel(line);
+        if (!f.categoryId && cat) label = cat.name + ' · ' + label;
+        return '<option value="' + escapeHtml(line.id) + '">' + escapeHtml(label) + '</option>';
+      }).join('');
+      planEl.innerHTML = planOpts;
+      if (f.planLineId && Array.prototype.some.call(planEl.options, function (o) { return o.value === f.planLineId; })) {
+        planEl.value = f.planLineId;
+      } else {
+        planEl.value = '';
+        f.planLineId = '';
+      }
+    }
+
+    if (payEl) {
+      var pays = (state.budget.paymentTypes || []).slice().sort(function (a, b) {
+        return String(a.name || '').localeCompare(String(b.name || ''), 'es');
+      });
+      var payOpts = '<option value="">Todos</option>' + pays.map(function (pt) {
+        return '<option value="' + escapeHtml(pt.id) + '">' + escapeHtml(pt.name) + '</option>';
+      }).join('');
+      payEl.innerHTML = payOpts;
+      if (f.paymentTypeId && Array.prototype.some.call(payEl.options, function (o) { return o.value === f.paymentTypeId; })) {
+        payEl.value = f.paymentTypeId;
+      } else {
+        payEl.value = '';
+        f.paymentTypeId = '';
+      }
+    }
+  }
+
+  function executionMatchesFilters(ex) {
+    var f = state.exeFilters || {};
+    var date = String(ex.date || '');
+    if (f.desde && date && date < f.desde) return false;
+    if (f.hasta && date && date > f.hasta) return false;
+    if (f.desde && !date) return false;
+    if (f.hasta && !date) return false;
+    if (f.categoryId && String(ex.categoryId || '') !== f.categoryId) return false;
+    if (f.planLineId && String(ex.planLineId || '') !== f.planLineId) return false;
+    if (f.paymentTypeId && String(ex.paymentTypeId || '') !== f.paymentTypeId) return false;
+    return true;
+  }
+
   function renderExecution() {
     var tbody = document.getElementById('exeBody');
     if (!tbody || !state.budget || !state.budget.period) return;
+    fillExeFilters();
     var locked = periodLocked();
-    var rows = (state.budget.period.executions || []).slice().sort(function (a, b) {
+    var allRows = state.budget.period.executions || [];
+    var rows = allRows.filter(executionMatchesFilters).slice().sort(function (a, b) {
       return String(b.date || '').localeCompare(String(a.date || ''));
     });
+    var hint = document.getElementById('exeFilterHint');
+    if (hint) {
+      if (exeFiltersActive()) {
+        hint.hidden = false;
+        hint.textContent = 'Mostrando ' + rows.length + ' de ' + allRows.length +
+          ' movimiento(s). Los totales de arriba siguen siendo del ciclo completo.';
+      } else {
+        hint.hidden = true;
+        hint.textContent = '';
+      }
+    }
+    if (!allRows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Sin movimientos este ciclo.</td></tr>';
+      return;
+    }
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Sin movimientos este ciclo.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Sin movimientos con esos filtros.</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map(function (ex) {
@@ -1161,6 +1396,8 @@
         '<td data-label="Fecha">' + escapeHtml(ex.date || '') + '</td>' +
         '<td data-label="Categoría"><strong>' + escapeHtml(ex.name || '') + '</strong>' +
         (ex.notes ? '<br><small>' + escapeHtml(ex.notes) + '</small>' : '') + '</td>' +
+        '<td data-label="Línea">' + escapeHtml(planLineName(ex)) + '</td>' +
+        '<td data-label="Tipo pago">' + escapeHtml(paymentTypeName(ex)) + '</td>' +
         '<td data-label="Tipo">' + typeBadge(ex.type) + '</td>' +
         '<td data-label="Monto">' + formatPlanLineDisplay(ex.amount, ex.currency, ex.type) + '</td>' +
         '<td data-label="">' + action + '</td></tr>';
@@ -1356,6 +1593,22 @@
       ' · <strong>Restante:</strong> ' + formatViewMoney(st.remaining);
   }
 
+  function openPayTypeModal(pt) {
+    var p = pt || {};
+    openModal(
+      pt ? 'Editar tipo de pago' : 'Nuevo tipo de pago',
+      '<div class="field"><label>Nombre *</label><input id="mPayName" type="text" maxlength="80" value="' +
+      escapeHtml(p.name || '') + '" placeholder="Ej. Efectivo, SINPE, Tarjeta"></div>',
+      'paymentType',
+      p.id || null,
+      !!pt
+    );
+    var input = document.getElementById('mPayName');
+    if (input) {
+      setTimeout(function () { input.focus(); }, 0);
+    }
+  }
+
   function openExeModal(ex) {
     if (periodLocked()) {
       alert(lockMessage());
@@ -1368,11 +1621,16 @@
       return;
     }
     var opts = categoryOptionsHtml(e.categoryId || null);
+    var payOpts = paymentTypeOptionsHtml(e.paymentTypeId || null);
+    var initialCat = e.categoryId || ((cats[0] && cats[0].id) || '');
+    var planOpts = planLineOptionsHtml(initialCat, e.planLineId || null);
     var today = new Date().toISOString().slice(0, 10);
     openModal(
       ex ? 'Editar movimiento' : 'Nuevo movimiento',
       '<div class="field"><label>Categoría *</label><select id="mExeCat">' + opts + '</select></div>' +
       '<p id="mExeCatStats" class="panel-hint" style="margin:0 0 10px"></p>' +
+      '<div class="field"><label>Línea de presupuesto</label><select id="mExePlan">' + planOpts + '</select></div>' +
+      '<div class="field"><label>Tipo de pago</label><select id="mExePay">' + payOpts + '</select></div>' +
       '<div class="field"><label>Monto *</label><input id="mExeAmount" type="number" step="any" value="' +
       (e.amount != null ? e.amount : '') + '"></div>' +
       '<div class="field"><label>Moneda *</label>' + currencySelectHtml('mExeCur', e.currency || 'CRC') + '</div>' +
@@ -1380,14 +1638,17 @@
       escapeHtml(e.date || today) + '"></div>' +
       '<div class="field"><label>Notas</label><textarea id="mExeNotes" rows="2">' +
       escapeHtml(e.notes || '') + '</textarea></div>' +
-      '<p style="margin:0;font-size:0.8rem;color:#7a8889">Podés registrar varios movimientos de la misma categoría.</p>',
+      '<p style="margin:0;font-size:0.8rem;color:#7a8889">Línea y tipo de pago son opcionales. Las líneas salen del Presupuesto de esa categoría.</p>',
       'execution',
       e.id || null,
       !!ex
     );
     var catSel = document.getElementById('mExeCat');
     if (catSel) {
-      catSel.addEventListener('change', updateExeCatStats);
+      catSel.addEventListener('change', function () {
+        updateExeCatStats();
+        refreshExePlanLineOptions('');
+      });
       updateExeCatStats();
     }
   }
@@ -1403,6 +1664,17 @@
         description: (document.getElementById('mCatDesc') || {}).value
           ? document.getElementById('mCatDesc').value.trim()
           : ''
+      })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message); });
+      return;
+    }
+    if (state.modalMode === 'paymentType') {
+      var payName = document.getElementById('mPayName').value.trim();
+      if (!payName) { alert('Nombre obligatorio.'); return; }
+      api('budget.paymentType.save', {
+        id: state.modalId,
+        name: payName
       })
         .then(function () { closeModal(); return loadBudget(); })
         .catch(function (err) { alert(err.message); });
@@ -1476,6 +1748,8 @@
         alert('Categoría y monto obligatorios. Usá punto o coma para decimales.');
         return;
       }
+      var payEl = document.getElementById('mExePay');
+      var planEl = document.getElementById('mExePlan');
       api('budget.execution.save', {
         id: state.modalId,
         cycleKey: currentCycleKey(),
@@ -1483,7 +1757,9 @@
         amount: amount,
         currency: document.getElementById('mExeCur').value,
         date: document.getElementById('mExeDate').value,
-        notes: document.getElementById('mExeNotes').value.trim()
+        notes: document.getElementById('mExeNotes').value.trim(),
+        paymentTypeId: payEl ? payEl.value : '',
+        planLineId: planEl ? planEl.value : ''
       })
         .then(function () { closeModal(); return loadBudget(); })
         .catch(function (err) { alert(err.message); });
@@ -1504,8 +1780,22 @@
         .catch(function (err) { alert(err.message || 'No se pudo eliminar'); });
       return;
     }
+    if (state.modalMode === 'paymentType' && state.modalId) {
+      if (!confirm(
+        '¿Eliminar tipo de pago?\n\n' +
+        'Solo se bloquea si en el ciclo actual tiene movimientos asociados.\n' +
+        'Los ciclos cerrados no se tocan.'
+      )) return;
+      api('budget.paymentType.delete', { id: state.modalId })
+        .then(function () { closeModal(); return loadBudget(); })
+        .catch(function (err) { alert(err.message || 'No se pudo eliminar'); });
+      return;
+    }
     if (state.modalMode === 'plan' && state.modalId) {
-      if (!confirm('¿Eliminar esta etiqueta / línea de presupuesto?')) return;
+      if (!confirm(
+        '¿Eliminar esta etiqueta / línea de presupuesto?\n\n' +
+        'Si tiene movimientos asociados en este ciclo, no se podrá borrar.'
+      )) return;
       api('budget.plan.delete', { cycleKey: currentCycleKey(), id: state.modalId })
         .then(function () { closeModal(); return loadBudget(); })
         .catch(function (err) { alert(err.message || 'No se pudo eliminar'); });
@@ -1933,6 +2223,8 @@
 
   var btnNewCat = document.getElementById('btnNewCat');
   if (btnNewCat) btnNewCat.addEventListener('click', function () { openCatModal(null); });
+  var btnNewPayType = document.getElementById('btnNewPayType');
+  if (btnNewPayType) btnNewPayType.addEventListener('click', function () { openPayTypeModal(null); });
   var btnNewLoan = document.getElementById('btnNewLoan');
   if (btnNewLoan) btnNewLoan.addEventListener('click', function () { openLoanModal(null); });
   var btnNewExe = document.getElementById('btnNewExe');
@@ -1972,6 +2264,25 @@
     histCycleFilter.addEventListener('change', function () {
       renderHistory();
     });
+  }
+  function onExeFilterChange() {
+    readExeFiltersFromDom();
+    // Si cambia categoría, la línea debe revalidarse contra ese subset
+    var catChanged = this && this.id === 'exeFilterCat';
+    if (catChanged) {
+      state.exeFilters.planLineId = '';
+      fillExeFilters();
+    }
+    renderExecution();
+  }
+  ['exeFilterDesde', 'exeFilterHasta', 'exeFilterCat', 'exeFilterPlan', 'exeFilterPay'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', onExeFilterChange);
+  });
+  var btnClearExeFilters = document.getElementById('btnClearExeFilters');
+  if (btnClearExeFilters) {
+    btnClearExeFilters.addEventListener('click', clearExeFilters);
   }
 
   if (modalSave) modalSave.addEventListener('click', saveModal);

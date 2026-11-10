@@ -19,6 +19,7 @@ export function uid(prefix) {
 export function emptyBudget() {
   return {
     categories: [],
+    paymentTypes: [],
     periods: [],
     loans: [],
   };
@@ -78,6 +79,90 @@ export function findCategory(budget, categoryId) {
   return (budget.categories || []).find((c) => c.id === categoryId) || null;
 }
 
+export function findPaymentType(budget, paymentTypeId) {
+  const id = String(paymentTypeId || '');
+  if (!id) return null;
+  return (budget.paymentTypes || []).find((p) => p.id === id) || null;
+}
+
+/**
+ * Uso de un tipo de pago solo en ciclos abiertos (los cerrados no bloquean).
+ */
+export function paymentTypeUsage(budget, paymentTypeId) {
+  const id = String(paymentTypeId || '');
+  let executions = 0;
+  if (!id) return { executions };
+  (budget.periods || []).forEach((p) => {
+    if (isPeriodClosed(p)) return;
+    (p.executions || []).forEach((ex) => {
+      if (String(ex.paymentTypeId || '') !== id) return;
+      executions += 1;
+    });
+  });
+  return { executions };
+}
+
+/**
+ * ¿Se puede borrar el tipo de pago?
+ * Solo mira ciclos abiertos: si hay ejecución asociada, no.
+ */
+export function assertPaymentTypeDeletable(budget, paymentTypeId) {
+  const u = paymentTypeUsage(budget, paymentTypeId);
+  if (u.executions > 0) {
+    const err = new Error(
+      'No se puede eliminar el tipo de pago: en el ciclo actual tiene ' +
+        u.executions +
+        ' movimiento(s) de ejecución. Borralos o dejá el tipo.'
+    );
+    err.code = 'payment_type_in_use';
+    throw err;
+  }
+  return u;
+}
+
+export function findPlanLine(period, planLineId) {
+  const id = String(planLineId || '');
+  if (!id || !period) return null;
+  return (period.budget || []).find((l) => l.id === id) || null;
+}
+
+export function planLineTagOf(line) {
+  if (!line) return '';
+  return String(line.tag || line.label || line.planLabel || '').trim();
+}
+
+/**
+ * Uso de una línea de plan solo dentro del mismo ciclo (las líneas no cruzan periodos).
+ */
+export function planLineUsageInPeriod(period, planLineId) {
+  const id = String(planLineId || '');
+  let executions = 0;
+  if (!id || !period) return { executions };
+  (period.executions || []).forEach((ex) => {
+    if (String(ex.planLineId || '') !== id) return;
+    executions += 1;
+  });
+  return { executions };
+}
+
+/**
+ * ¿Se puede borrar la línea de presupuesto?
+ * Si hay movimientos del ciclo ligados a esa línea, no.
+ */
+export function assertPlanLineDeletable(period, planLineId) {
+  const u = planLineUsageInPeriod(period, planLineId);
+  if (u.executions > 0) {
+    const err = new Error(
+      'No se puede eliminar la línea de presupuesto: tiene ' +
+        u.executions +
+        ' movimiento(s) de ejecución asociados. Borralos o dejá la línea.'
+    );
+    err.code = 'plan_line_in_use';
+    throw err;
+  }
+  return u;
+}
+
 /**
  * Uso de una categoría solo en ciclos abiertos (los cerrados son histórico y no bloquean).
  */
@@ -132,6 +217,7 @@ export function assertCategoryDeletable(budget, categoryId) {
 export function normalizeBudget(data) {
   if (!data || typeof data !== 'object') return emptyBudget();
   if (!Array.isArray(data.categories)) data.categories = [];
+  if (!Array.isArray(data.paymentTypes)) data.paymentTypes = [];
   if (!Array.isArray(data.periods)) data.periods = [];
   if (!Array.isArray(data.loans)) data.loans = [];
   const oldRubros = Array.isArray(data.rubros) ? data.rubros : [];
@@ -158,6 +244,26 @@ export function normalizeBudget(data) {
     if (c.sortOrder == null || isNaN(Number(c.sortOrder))) c.sortOrder = idx;
     else c.sortOrder = Number(c.sortOrder);
   });
+
+  // Catálogo de tipos de pago (opcional en cada movimiento ejecutado)
+  data.paymentTypes = data.paymentTypes
+    .map((pt, idx) => {
+      const name = String(pt && pt.name != null ? pt.name : '').trim();
+      if (!name) return null;
+      let sortOrder = Number(pt.sortOrder);
+      if (isNaN(sortOrder)) sortOrder = idx;
+      return {
+        id: (pt && pt.id) || uid('pay'),
+        name,
+        sortOrder,
+        createdAt: (pt && pt.createdAt) || null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return String(a.name).localeCompare(String(b.name), 'es');
+    });
 
   data.loans = data.loans.map((loan) => {
     const movements = Array.isArray(loan.movements) ? loan.movements : [];
@@ -218,7 +324,7 @@ export function normalizeBudget(data) {
       })
       .filter(Boolean);
 
-    // Ejecución → categoría (sin rubro)
+    // Ejecución → categoría (+ tipo de pago y línea de plan opcionales)
     p.executions = p.executions.map((ex) => {
       let categoryId = ex.categoryId || null;
       if (!categoryId && ex.rubroId) {
@@ -226,6 +332,16 @@ export function normalizeBudget(data) {
         categoryId = (rubro && rubro.categoryId) || null;
       }
       const cat = findCategory(data, categoryId);
+      const rawPayId = String(ex.paymentTypeId || '').trim();
+      const pay = rawPayId ? findPaymentType(data, rawPayId) : null;
+      const paymentTypeId = pay ? pay.id : (rawPayId || null);
+      const rawPlanId = String(ex.planLineId || '').trim();
+      let planLine = rawPlanId ? findPlanLine(p, rawPlanId) : null;
+      // La línea debe pertenecer a la misma categoría del movimiento
+      if (planLine && categoryId && String(planLine.categoryId) !== String(categoryId)) {
+        planLine = null;
+      }
+      const planLineId = planLine ? planLine.id : (rawPlanId || null);
       return {
         id: ex.id || uid('exe'),
         categoryId: categoryId || null,
@@ -235,6 +351,10 @@ export function normalizeBudget(data) {
         currency: normalizeCurrency(ex.currency),
         notes: String(ex.notes || ''),
         date: String(ex.date || '').slice(0, 10) || null,
+        paymentTypeId,
+        paymentTypeName: (pay && pay.name) || String(ex.paymentTypeName || ''),
+        planLineId,
+        planLineTag: planLine ? planLineTagOf(planLine) : String(ex.planLineTag || ''),
       };
     });
 
@@ -260,6 +380,10 @@ export function normalizeBudget(data) {
           currency: 'CRC',
           notes: it.notes || '',
           date: it.createdAt ? String(it.createdAt).slice(0, 10) : null,
+          paymentTypeId: null,
+          paymentTypeName: '',
+          planLineId: null,
+          planLineTag: '',
         });
         if (!p.budget.find((b) => b.categoryId === cat.id)) {
           p.budget.push({
@@ -666,6 +790,10 @@ export function buildHistory(budget) {
         exchangeRate: rate,
         notes: ex.notes || '',
         date: ex.date || p.startDate,
+        paymentTypeId: ex.paymentTypeId || null,
+        paymentTypeName: ex.paymentTypeName || '',
+        planLineId: ex.planLineId || null,
+        planLineTag: ex.planLineTag || '',
       });
     });
   });
@@ -732,6 +860,10 @@ export function closePeriod(budget, cycleKey, billingDayStart) {
     currency: normalizeCurrency(ex.currency),
     notes: ex.notes || '',
     date: String(ex.date || period.startDate).slice(0, 10),
+    paymentTypeId: ex.paymentTypeId || null,
+    paymentTypeName: String(ex.paymentTypeName || ''),
+    planLineId: ex.planLineId || null,
+    planLineTag: String(ex.planLineTag || ''),
   }));
   const created = createNextPeriod(budget, period, billingDayStart);
   return { closed: period, next: created.next, nextCycle: created.nextCycle };
