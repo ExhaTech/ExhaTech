@@ -851,19 +851,7 @@ img, svg, video, canvas, table {
 .amount-with-cur .plan-line-orig {
   margin-left: 0;
 }
-.hist-filter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.88rem;
-}
-.hist-filter select {
-  min-width: 200px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(25, 114, 120, 0.25);
-}
-/* Yurguen: filtros del panel Ejecución (solo UI; no cambian los totales del ciclo) */
+/* Yurguen: filtros del panel Ejecución (las tarjetas sí siguen el filtro) */
 .exe-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1164,15 +1152,6 @@ table.admin-table {
   }
   .panel-head-actions .btn {
     flex: 1 1 auto;
-  }
-  .hist-filter {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-  .hist-filter select {
-    flex: 1;
-    min-width: 0;
-    width: 100%;
   }
   .exe-filters {
     flex-direction: column;
