@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Exha — Inventario</title>
+  <link rel="stylesheet" href="/inventario.css?v=6" />
+</head>
+<body>
+  <div class="inv-shell" id="invShell" hidden>
+    <header class="inv-top">
+      <div>
+        <a class="inv-back" href="/">← Sistemas</a>
+        <h1>Inventario — <span id="userLabel"></span></h1>
+        <p class="inv-tagline">Catálogo compartido · 3–4 personas · stock, pedidos y ventas al día</p>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
+    </header>
+
+    <nav class="inv-nav" aria-label="Secciones">
+      <button type="button" class="active" data-panel="productos">Productos</button>
+      <button type="button" data-panel="ordenes">Órdenes / Ventas</button>
+      <button type="button" data-panel="compras">Compras</button>
+      <button type="button" data-panel="reparto">Reparto</button>
+      <button type="button" data-panel="splits">% globales</button>
+    </nav>
+
+    <main class="inv-main">
+      <p class="admin-msg error" id="apiError" hidden></p>
+
+      <section class="inv-panel active" id="panel-productos">
+        <div class="panel-head">
+          <h2>Productos</h2>
+          <button type="button" class="btn btn-primary btn-sm" id="btnNewProduct">+ Producto</button>
+        </div>
+        <div class="inv-product-grid" id="productsGrid"></div>
+        <p class="panel-hint" id="productsEmpty" hidden>Sin productos todavía. Creá el primero.</p>
+      </section>
+
+      <section class="inv-panel" id="panel-ordenes">
+        <div class="panel-head">
+          <div>
+            <h2>Órdenes / Ventas</h2>
+            <p class="panel-hint" style="margin:4px 0 0">
+              Primero es <strong>orden</strong> (pedido). Solo al pagar/concretar se declara <strong>venta</strong>.
+              Con o sin factura. Contra pedido no exige stock.
+            </p>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="btnNewOrder">+ Orden</button>
+        </div>
+        <div id="ordersList"></div>
+        <p class="panel-hint" id="ordersEmpty" hidden>Sin órdenes todavía.</p>
+      </section>
+
+      <section class="inv-panel" id="panel-compras">
+        <div class="panel-head">
+          <div>
+            <h2>Compras a proveedor</h2>
+            <p class="panel-hint" style="margin:4px 0 0">Al guardar, el stock sube al toque. Si cancelás, vuelve a bajar.</p>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="btnNewPurchase">+ Compra</button>
+        </div>
+        <div id="purchasesList"></div>
+        <p class="panel-hint" id="purchasesEmpty" hidden>Sin compras todavía.</p>
+      </section>
+
+      <section class="inv-panel" id="panel-reparto">
+        <div class="inv-card">
+          <h2>Reparto por periodo</h2>
+          <p class="panel-hint">
+            Filtrá ventas concretadas desde una fecha hasta hoy (usa la fecha en que se declaró la venta).
+            Cada venta se puede marcar como <strong>repartida</strong>.
+          </p>
+          <div class="splits-grid">
+            <div class="field">
+              <label>Desde</label>
+              <input type="date" id="reportFrom" />
+            </div>
+            <div class="field">
+              <label>Hasta</label>
+              <input type="date" id="reportTo" />
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btnLoadReport">Calcular reparto</button>
+          <div id="reportSummary" class="report-summary" hidden></div>
+          <div id="reportSales"></div>
+          <p class="panel-hint" id="reportEmpty" hidden>No hay ventas concretadas en ese rango.</p>
+        </div>
+      </section>
+
+      <section class="inv-panel" id="panel-splits">
+        <div class="inv-card">
+          <h2>% globales (obligatorios)</h2>
+          <p class="panel-hint">
+            Se suman al costo del producto para sacar el <strong>precio mínimo</strong>.
+            No se cambian por producto. El reparto del periodo usa estos mismos %.
+            Ganancia y costo viven en cada producto (margen / precio).
+          </p>
+          <form id="splitsForm" novalidate>
+            <div class="splits-grid">
+              <div class="field"><label>Impuestos %</label><input type="number" id="splitImpuestos" min="0" max="100" step="0.01" /></div>
+              <div class="field"><label>ExhaTech %</label><input type="number" id="splitExhatech" min="0" max="100" step="0.01" /></div>
+              <div class="field"><label>Vendedor %</label><input type="number" id="splitVendedor" min="0" max="100" step="0.01" /></div>
+              <div class="field"><label>Comisión bancaria %</label><input type="number" id="splitComisionBancaria" min="0" max="100" step="0.01" /></div>
+            </div>
+            <p class="panel-hint" id="splitsMeta"></p>
+            <button type="submit" class="btn btn-primary" id="btnSaveSplits">Guardar %</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <p class="inv-boot" id="invBoot">Comprobando sesión…</p>
+
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h3 id="modalTitle">Producto</h3>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger" id="modalDelete" hidden>Desactivar</button>
+        <div class="modal-actions-end">
+          <button type="button" class="btn btn-outline" id="modalCancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/inventario.js?v=6"></script>
+</body>
+</html>

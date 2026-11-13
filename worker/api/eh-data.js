@@ -125,6 +125,7 @@ export async function handleEhData(request, env, body) {
       role,
       active: true,
       billingDayStart,
+      modules: body.modules,
       passwordSalt: cred.salt,
       passwordHash: cred.hash,
       createdAt: new Date().toISOString(),
@@ -158,6 +159,16 @@ export async function handleEhData(request, env, body) {
         return json({ error: 'No podés quitarte el rol admin' }, 400);
       }
       changes.role = body.role;
+    }
+    const nextRole = changes.role || target.role;
+    if (nextRole === 'admin') {
+      changes.modules = {
+        contabilidad: false,
+        bitacora: false,
+        inventario: false,
+      };
+    } else if (body.modules != null) {
+      changes.modules = body.modules;
     }
     if (body.newPassword) {
       if (String(body.newPassword).length < 6) {

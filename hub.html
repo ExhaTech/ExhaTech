@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>ExhaTech — App</title>
+  <link rel="stylesheet" href="/hub.css?v=1" />
+</head>
+<body>
+  <section class="admin-login" id="hubLogin">
+    <div class="admin-login-box">
+      <h1>ExhaTech</h1>
+      <p class="panel-hint" style="text-align:center;margin-top:-6px">Iniciá sesión para ver tus sistemas</p>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="usernameInput">Usuario</label>
+          <input type="text" id="usernameInput" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="passwordInput">Contraseña</label>
+          <input type="password" id="passwordInput" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" id="loginBtn" style="width:100%;margin-top:8px">Entrar</button>
+        <p class="admin-msg error" id="loginError" role="alert"></p>
+      </form>
+      <p style="margin:14px 0 0;font-size:0.85rem;text-align:center">
+        <button type="button" class="btn btn-outline btn-sm" id="btnShowRegister" style="width:100%">Crear cuenta</button>
+      </p>
+      <form id="registerForm" novalidate hidden>
+        <div class="field"><label>Usuario *</label><input type="text" id="regUsername" autocomplete="username" required /></div>
+        <div class="field"><label>Correo *</label><input type="email" id="regEmail" autocomplete="email" required /></div>
+        <div class="field"><label>WhatsApp</label><input type="tel" id="regPhone" autocomplete="tel" placeholder="+506…" /></div>
+        <div class="field"><label>Nombre</label><input type="text" id="regDisplayName" autocomplete="name" /></div>
+        <div class="field"><label>Contraseña * (mín. 6)</label><input type="password" id="regPassword" autocomplete="new-password" required /></div>
+        <button type="submit" class="btn btn-primary" id="registerBtn" style="width:100%;margin-top:8px">Registrarme</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnShowLogin" style="width:100%;margin-top:6px">Ya tengo cuenta</button>
+        <p class="admin-msg error" id="registerError" role="alert"></p>
+        <p class="panel-hint">Al registrarte activás Contabilidad y Bitácora. Inventario lo otorga el admin.</p>
+      </form>
+      <footer class="site-footer site-footer--login">
+        <p class="site-footer__line site-footer__dev">
+          Desarrollado por
+          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
+        </p>
+      </footer>
+    </div>
+  </section>
+
+  <div class="admin-shell" id="hubShell">
+    <header class="admin-top">
+      <div class="admin-top-brand">
+        <h1>ExhaTech — <span id="userLabel"></span></h1>
+      </div>
+      <div class="admin-top-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
+      </div>
+    </header>
+
+    <nav class="admin-nav" aria-label="Secciones" id="hubNav">
+      <button type="button" class="active" data-panel="apps" id="navApps">Sistemas</button>
+      <button type="button" data-panel="usuarios" id="navUsuarios" hidden>Usuarios</button>
+    </nav>
+
+    <main class="admin-main">
+      <p class="admin-msg error" id="apiError" hidden></p>
+      <p class="admin-msg ok" id="purgeNotice" hidden></p>
+
+      <section class="admin-panel active" id="panel-apps">
+        <div class="hub-grid" id="appsGrid"></div>
+        <p class="panel-hint" id="appsEmptyHint" hidden>No tenés módulos activos. Pedile al admin que te active Contabilidad, Bitácora o Inventario.</p>
+      </section>
+
+      <section class="admin-panel" id="panel-usuarios">
+        <div class="admin-card">
+          <div class="panel-head">
+            <h2>Usuarios</h2>
+            <button type="button" class="btn btn-primary btn-sm" id="btnNewUser">+ Usuario</button>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-table--stack">
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>Correo</th>
+                  <th>Módulos</th>
+                  <th>Logins</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="usersBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p class="site-footer__line site-footer__cliente">ExhaTech App</p>
+      <p class="site-footer__line site-footer__dev">
+        Desarrollado por
+        <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
+      </p>
+    </footer>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger" id="modalDelete" hidden>Eliminar</button>
+        <div class="modal-actions-end">
+          <button type="button" class="btn btn-outline" id="modalCancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="modalSave">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/hub.js?v=1"></script>
+</body>
+</html>

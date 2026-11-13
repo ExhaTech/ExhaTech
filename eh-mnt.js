@@ -2,8 +2,11 @@
 (function () {
   'use strict';
 
-  var TOKEN_KEY = 'exha_budget_token';
-  var USER_KEY = 'exha_budget_user';
+  // Sesión compartida con Hub / Bitácora / Inventario (legacy keys se migran).
+  var TOKEN_KEY = 'exha_session_token';
+  var USER_KEY = 'exha_session_user';
+  var LEGACY_TOKEN_KEYS = ['exha_budget_token', 'exha_bitacora_token'];
+  var LEGACY_USER_KEYS = ['exha_budget_user', 'exha_bitacora_user'];
   var SUMMARY_CUR_KEY = 'exha_budget_summary_cur';
   var VIEW_CUR_KEY = 'exha_budget_view_cur';
   // Absoluto al origin actual (workers.dev o dominio custom).
@@ -11,7 +14,6 @@
 
   var state = {
     user: null,
-    users: [],
     budget: null,
     modalMode: null,
     modalId: null,
@@ -46,11 +48,26 @@
   var modalCancel = document.getElementById('modalCancel');
   var modalDelete = document.getElementById('modalDelete');
 
+  function clearLegacySession() {
+    LEGACY_TOKEN_KEYS.forEach(function (k) { sessionStorage.removeItem(k); });
+    LEGACY_USER_KEYS.forEach(function (k) { sessionStorage.removeItem(k); });
+  }
+
   function getToken() {
-    return sessionStorage.getItem(TOKEN_KEY) || '';
+    var t = sessionStorage.getItem(TOKEN_KEY) || '';
+    if (t) return t;
+    for (var i = 0; i < LEGACY_TOKEN_KEYS.length; i++) {
+      t = sessionStorage.getItem(LEGACY_TOKEN_KEYS[i]) || '';
+      if (t) {
+        sessionStorage.setItem(TOKEN_KEY, t);
+        return t;
+      }
+    }
+    return '';
   }
 
   function setSession(token, user) {
+    clearLegacySession();
     if (token) sessionStorage.setItem(TOKEN_KEY, token);
     else sessionStorage.removeItem(TOKEN_KEY);
     if (user) {
@@ -65,11 +82,28 @@
   function loadSessionUser() {
     try {
       var raw = sessionStorage.getItem(USER_KEY);
+      if (!raw) {
+        for (var i = 0; i < LEGACY_USER_KEYS.length; i++) {
+          raw = sessionStorage.getItem(LEGACY_USER_KEYS[i]);
+          if (raw) break;
+        }
+      }
       state.user = raw ? JSON.parse(raw) : null;
     } catch (e) {
       state.user = null;
     }
     return state.user;
+  }
+
+  /** Sin sesión válida → limpia y manda al hub. */
+  function rejectUnauthorized() {
+    setSession('', null);
+    location.replace('/');
+  }
+
+  /** Sesión ok pero sin permiso → hub sin cerrar sesión. */
+  function goHub() {
+    location.replace('/');
   }
 
   function showLoginError(msg) {
@@ -541,10 +575,8 @@
   }
 
   function showLogin() {
-    setSession('', null);
-    state.budget = null;
-    if (loginView) loginView.style.display = 'flex';
-    if (shell) shell.classList.remove('active');
+    // Login vive en el hub (/); acá solo se rechaza.
+    rejectUnauthorized();
   }
 
   function isAdminUser() {
@@ -558,44 +590,40 @@
   }
 
   function applyShellMode() {
-    var admin = isAdminUser();
     var hasConta = userHasModule('contabilidad');
-    if (shell) shell.classList.toggle('is-admin-only', admin);
-    // Slots AdSense: visibles solo para usuarios (no admin)
+    if (shell) shell.classList.remove('is-admin-only');
+    // Slots AdSense: visibles para usuarios con Contabilidad
     document.querySelectorAll('.ad-slot').forEach(function (slot) {
-      slot.hidden = admin;
+      slot.hidden = !hasConta;
     });
     var fxBar = document.getElementById('fxBar');
-    if (fxBar) fxBar.hidden = admin || !hasConta;
+    if (fxBar) fxBar.hidden = !hasConta;
     var cycleSelect = document.getElementById('cycleSelect');
     if (cycleSelect && cycleSelect.closest('.top-field')) {
-      cycleSelect.closest('.top-field').hidden = admin || !hasConta;
+      cycleSelect.closest('.top-field').hidden = !hasConta;
     }
-    var navUsers = document.getElementById('navUsuarios');
-    if (navUsers) navUsers.hidden = !admin;
     document.querySelectorAll('.admin-nav [data-panel]').forEach(function (btn) {
       var panel = btn.getAttribute('data-panel');
-      if (panel === 'usuarios') {
-        btn.hidden = !admin;
-        return;
-      }
       if (panel === 'cuenta') {
         btn.hidden = false;
         return;
       }
-      btn.hidden = admin || !hasConta;
+      btn.hidden = !hasConta;
     });
     var billingWrap = document.getElementById('billingFieldWrap');
-    if (billingWrap) billingWrap.hidden = admin || !hasConta;
+    if (billingWrap) billingWrap.hidden = !hasConta;
     var phoneEl = document.getElementById('myPhone');
     if (phoneEl && state.user) phoneEl.value = state.user.phone || '';
     var dayInput = document.getElementById('myBillingDay');
     if (dayInput && state.user) dayInput.value = state.user.billingDayStart || 1;
   }
 
-  function showShell(opts) {
-    opts = opts || {};
+  function showShell() {
     if (!state.user) loadSessionUser();
+    if (isAdminUser() || !userHasModule('contabilidad')) {
+      goHub();
+      return;
+    }
     if (loginView) loginView.style.display = 'none';
     if (shell) shell.classList.add('active');
     state.summaryCurrency = 'CRC';
@@ -611,26 +639,8 @@
     showApiError('');
     var purgeEl = document.getElementById('purgeNotice');
     if (purgeEl) {
-      if (opts.purgedInactive && opts.purgedInactive.length) {
-        purgeEl.hidden = false;
-        purgeEl.textContent =
-          'Limpieza por inactividad (>31 días): se borraron datos de ' +
-          opts.purgedInactive.map(function (p) { return p.username; }).join(', ') +
-          '. Las cuentas siguen activas.';
-      } else {
-        purgeEl.hidden = true;
-        purgeEl.textContent = '';
-      }
-    }
-    if (isAdminUser()) {
-      switchPanel('usuarios');
-      loadUsers();
-      return;
-    }
-    if (!userHasModule('contabilidad')) {
-      switchPanel('cuenta');
-      showApiError('No tenés Contabilidad activa. Pedile al admin o usá Bitácora si la tenés.');
-      return;
+      purgeEl.hidden = true;
+      purgeEl.textContent = '';
     }
     api('track.module', { module: 'contabilidad' }).catch(function () {});
     loadBudget();
@@ -1808,7 +1818,6 @@
         .catch(function (err) { alert(err.message); });
       return;
     }
-    if (state.modalMode === 'user') saveUserModal();
   }
 
   function deleteModal() {
@@ -1865,7 +1874,6 @@
         .catch(function (err) { alert(err.message); });
       return;
     }
-    if (state.modalMode === 'user') deleteUserModal();
   }
 
   function saveProfile() {
@@ -1975,165 +1983,6 @@
         return loadBudget(nextKey || null);
       })
       .catch(function (err) { alert(err.message || 'No se pudo cerrar'); });
-  }
-
-  function loadUsers() {
-    return api('users.list').then(function (res) {
-      state.users = res.users || [];
-      renderUsers();
-    }).catch(function (err) {
-      showApiError(err.message || 'Error al cargar usuarios');
-    });
-  }
-
-  function renderUsers() {
-    var tbody = document.getElementById('usersBody');
-    if (!tbody) return;
-    if (!state.users.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Sin usuarios.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = state.users.map(function (u) {
-      var st = u.active !== false ? 'Activo' : 'Inactivo';
-      var badge = u.active !== false ? 'badge-paid' : 'badge-overdue';
-      var mods = u.role === 'admin'
-        ? '—'
-        : [
-            (u.modules && u.modules.contabilidad) ? 'Conta' : null,
-            (u.modules && u.modules.bitacora) ? 'Bitácora' : null
-          ].filter(Boolean).join(', ') || 'Ninguno';
-      return '<tr>' +
-        '<td data-label="Usuario"><strong>' + escapeHtml(u.username) + '</strong><div class="panel-hint" style="margin:0">' +
-          escapeHtml(u.displayName || '') + '</div></td>' +
-        '<td data-label="Correo">' + escapeHtml(u.email || '—') +
-          (u.phone ? '<div class="panel-hint" style="margin:0">' + escapeHtml(u.phone) + '</div>' : '') +
-        '</td>' +
-        '<td data-label="Módulos">' + escapeHtml(mods) + '</td>' +
-        '<td data-label="Logins">' + (Number(u.loginCount) || 0) +
-          (u.lastLoginAt ? '<div class="panel-hint" style="margin:0">' +
-            escapeHtml(String(u.lastLoginAt).slice(0, 10)) + '</div>' : '') +
-        '</td>' +
-        '<td data-label="Estado"><span class="badge-status ' + badge + '">' + st + '</span></td>' +
-        '<td data-label=""><button type="button" class="btn btn-outline btn-sm" data-edit-user="' + u.id + '">Editar</button></td></tr>';
-    }).join('');
-    tbody.querySelectorAll('[data-edit-user]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var u = state.users.find(function (x) { return x.id === btn.getAttribute('data-edit-user'); });
-        if (u) openUserModal(u);
-      });
-    });
-  }
-
-  function openUserModal(user) {
-    var u = user || {};
-    var isEdit = !!user;
-    var mods = u.modules || { contabilidad: true, bitacora: true };
-    var isAdminRole = u.role === 'admin';
-    openModal(
-      isEdit ? 'Editar usuario' : 'Nuevo usuario',
-      '<div class="field"><label>Usuario *</label><input id="mUsername" value="' + escapeHtml(u.username || '') + '" ' + (isEdit ? 'disabled' : '') + '></div>' +
-      '<div class="field"><label>Nombre</label><input id="mDisplayName" value="' + escapeHtml(u.displayName || '') + '"></div>' +
-      '<div class="field"><label>Correo *</label><input id="mEmail" type="email" value="' + escapeHtml(u.email || '') + '"></div>' +
-      '<div class="field"><label>WhatsApp</label><input id="mPhone" type="tel" value="' + escapeHtml(u.phone || '') + '" placeholder="+506…"></div>' +
-      '<div class="field"><label>Rol</label><select id="mRole">' +
-      '<option value="user"' + (!isAdminRole ? ' selected' : '') + '>Usuario</option>' +
-      '<option value="admin"' + (isAdminRole ? ' selected' : '') + '>Admin (solo gestión)</option></select></div>' +
-      '<div class="field" id="mModulesWrap">' +
-        '<label>Módulos</label>' +
-        '<label class="check-inline"><input type="checkbox" id="mModConta"' + (mods.contabilidad !== false ? ' checked' : '') + '> Contabilidad</label> ' +
-        '<label class="check-inline"><input type="checkbox" id="mModFoco"' + (mods.bitacora !== false ? ' checked' : '') + '> Bitácora</label>' +
-      '</div>' +
-      (isEdit
-        ? '<p class="panel-hint">Logins: ' + (Number(u.loginCount) || 0) +
-          (u.lastLoginAt ? ' · Último: ' + escapeHtml(String(u.lastLoginAt).slice(0, 16).replace('T', ' ')) : '') +
-          '</p>' +
-          '<div class="field"><label>Contraseña nueva <small>(vacío = no cambiar)</small></label><input id="mPassword" type="password" autocomplete="new-password"></div>' +
-          '<button type="button" class="btn btn-outline btn-sm" id="btnTempPass" style="margin-bottom:10px">Generar clave temporal</button>' +
-          '<div class="field"><label><input type="checkbox" id="mActive" ' + (u.active !== false ? 'checked' : '') + '> Activo</label></div>'
-        : '<div class="field"><label>Contraseña *</label><input id="mPassword" type="password" autocomplete="new-password"></div>'),
-      'user',
-      u.id || null,
-      isEdit && !(state.user && state.user.id === u.id)
-    );
-    var roleSel = document.getElementById('mRole');
-    var modsWrap = document.getElementById('mModulesWrap');
-    function syncModVisibility() {
-      if (modsWrap) modsWrap.style.display = roleSel && roleSel.value === 'admin' ? 'none' : '';
-    }
-    if (roleSel) roleSel.addEventListener('change', syncModVisibility);
-    syncModVisibility();
-    var btnTemp = document.getElementById('btnTempPass');
-    if (btnTemp && u.id) {
-      btnTemp.addEventListener('click', function () {
-        if (!confirm('¿Generar clave temporal? La actual deja de servir. Copiala ahora (aún no hay correo).')) return;
-        api('users.issueTempPassword', { id: u.id })
-          .then(function (res) {
-            alert(
-              'Clave temporal (copiá ahora):\n\n' + res.tempPassword +
-              '\n\n' + (res.hint || '')
-            );
-            return loadUsers();
-          })
-          .catch(function (err) { alert(err.message || 'No se pudo generar'); });
-      });
-    }
-  }
-
-  function saveUserModal() {
-    var username = document.getElementById('mUsername').value.trim().toLowerCase();
-    var displayName = document.getElementById('mDisplayName').value.trim();
-    var email = document.getElementById('mEmail').value.trim();
-    var phone = document.getElementById('mPhone').value.trim();
-    var role = document.getElementById('mRole').value;
-    var password = document.getElementById('mPassword').value;
-    var modules = {
-      contabilidad: !!(document.getElementById('mModConta') && document.getElementById('mModConta').checked),
-      bitacora: !!(document.getElementById('mModFoco') && document.getElementById('mModFoco').checked)
-    };
-    if (state.modalId) {
-      var payload = {
-        id: state.modalId,
-        displayName: displayName,
-        email: email,
-        phone: phone,
-        role: role,
-        modules: modules,
-        active: document.getElementById('mActive').checked
-      };
-      if (password) payload.newPassword = password;
-      api('users.update', payload)
-        .then(function () { closeModal(); return loadUsers(); })
-        .catch(function (err) { alert(err.message || 'Error al guardar'); });
-    } else {
-      if (!username || password.length < 6) {
-        alert('Usuario y contraseña (mín. 6) obligatorios.');
-        return;
-      }
-      if (role !== 'admin' && !email) {
-        alert('Correo obligatorio para usuarios.');
-        return;
-      }
-      api('users.create', {
-        username: username,
-        password: password,
-        displayName: displayName || username,
-        email: email,
-        phone: phone,
-        role: role,
-        modules: modules,
-        billingDayStart: 1
-      })
-        .then(function () { closeModal(); return loadUsers(); })
-        .catch(function (err) { alert(err.message || 'Error al crear'); });
-    }
-  }
-
-  function deleteUserModal() {
-    if (!state.modalId) return;
-    if (!confirm('¿Eliminar este usuario?')) return;
-    api('users.delete', { id: state.modalId })
-      .then(function () { closeModal(); return loadUsers(); })
-      .catch(function (err) { alert(err.message || 'Error al eliminar'); });
   }
 
   function changePassword() {
@@ -2253,7 +2102,7 @@
   var btnLogout = document.getElementById('btnLogout');
   if (btnLogout) {
     btnLogout.addEventListener('click', function () {
-      api('logout').catch(function () { /* ignore */ }).finally(showLogin);
+      api('logout').catch(function () { /* ignore */ }).finally(rejectUnauthorized);
     });
   }
 
@@ -2272,8 +2121,6 @@
   if (btnNewLoan) btnNewLoan.addEventListener('click', function () { openLoanModal(null); });
   var btnNewExe = document.getElementById('btnNewExe');
   if (btnNewExe) btnNewExe.addEventListener('click', function () { openExeModal(null); });
-  var btnNewUser = document.getElementById('btnNewUser');
-  if (btnNewUser) btnNewUser.addEventListener('click', function () { openUserModal(null); });
   var btnChangePass = document.getElementById('btnChangePass');
   if (btnChangePass) btnChangePass.addEventListener('click', changePassword);
   var btnSaveProfile = document.getElementById('btnSaveProfile');
@@ -2326,7 +2173,10 @@
     });
   }
 
-  if (getToken()) {
+  // Sin sesión → hub. Con sesión sin permiso, showShell redirige sin cerrar sesión.
+  if (!getToken()) {
+    rejectUnauthorized();
+  } else {
     loadSessionUser();
     api('me')
       .then(function (res) {
@@ -2334,15 +2184,7 @@
         showShell();
       })
       .catch(function () {
-        showLogin();
-        if (location.protocol === 'file:') {
-          showLoginError('Abrí http://localhost:8080/contabilidad (no el archivo directo).');
-        }
+        rejectUnauthorized();
       });
-  } else {
-    showLogin();
-    if (location.protocol === 'file:') {
-      showLoginError('Abrí http://localhost:8080/contabilidad (no el archivo directo).');
-    }
   }
 })();

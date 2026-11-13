@@ -12,34 +12,21 @@
   <section class="foco-login" id="focoLogin">
     <div class="foco-login-box">
       <h1>Exha — Bitácora</h1>
-      <p>Gestión de seguimiento para administración de condominios. Capturá, priorizá y cerrá pendientes.</p>
-      <form id="loginForm" novalidate>
-        <div class="field">
-          <label for="usernameInput">Usuario</label>
-          <input type="text" id="usernameInput" autocomplete="username" required />
-        </div>
-        <div class="field">
-          <label for="passwordInput">Contraseña</label>
-          <input type="password" id="passwordInput" autocomplete="current-password" required />
-        </div>
-        <button type="submit" class="btn btn-primary" id="loginBtn" style="width:100%;margin-top:8px">Entrar</button>
-        <p class="foco-msg error" id="loginError" role="alert"></p>
-      </form>
-      <a href="/" style="display:inline-block;margin-top:12px;font-size:0.85rem">← Volver al sitio</a>
-      <footer class="site-footer site-footer--login">
-        <p class="site-footer__line site-footer__dev">
-          Desarrollado por
-          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">ExhaTech</a>
-          · Encontranos:
-          <a class="site-footer__dev-link" href="https://www.exhatech.com" target="_blank" rel="noopener noreferrer">www.exhatech.com</a>
-        </p>
-      </footer>
+      <p>Redirigiendo al login…</p>
+      <p class="foco-msg error" id="loginError" role="alert" style="display:none"></p>
+      <form id="loginForm" novalidate hidden></form>
+      <p style="text-align:center;margin-top:12px">
+        <a class="btn btn-outline btn-sm" href="/">Ir a ExhaTech</a>
+      </p>
     </div>
   </section>
 
   <div class="foco-shell" id="focoShell">
     <header class="foco-top">
-      <h1>Bitácora — <span id="userLabel"></span></h1>
+      <div>
+        <a href="/" style="font-size:0.85rem;font-weight:600;color:#197278;text-decoration:none">← Sistemas</a>
+        <h1>Bitácora — <span id="userLabel"></span></h1>
+      </div>
       <div class="foco-top-actions">
         <span class="foco-badge" id="inboxBadge" title="En bandeja">0 bandeja</span>
         <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>

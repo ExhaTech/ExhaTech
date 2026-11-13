@@ -57,13 +57,13 @@ const store = {
       role: 'user',
       password: 'Gunner00',
       email: 'yurguen@exhatech.com',
-      modules: { contabilidad: true, bitacora: true },
+      modules: { contabilidad: true, bitacora: true, inventario: true },
     }),
   ],
 };
 fs.mkdirSync(path.dirname(USERS_FILE), { recursive: true });
 fs.writeFileSync(USERS_FILE, JSON.stringify(store, null, 2), 'utf8');
 console.log('OK — cuentas reseteadas (seed v5):');
-console.log('  admin   → solo gestión de usuarios / Gunner00');
-console.log('  user    → yurguen (Contabilidad+Bitácora) / Gunner00');
+console.log('  admin   → solo gestión de usuarios en / / Gunner00');
+console.log('  user    → yurguen (Contabilidad+Bitácora+Inventario) / Gunner00');
 console.log('Budgets borrados.');

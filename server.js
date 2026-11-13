@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const usersAuth = require('./lib/users-auth');
 let budgetStore = require('./lib/budget-store');
 let focoStore = require('./lib/foco-store');
+let inventarioStore = require('./lib/inventario-store');
 
 /** Dev: recarga budget-store (Node cachea el require y dejaba la lógica vieja del fin del ciclo) */
 function reloadBudgetStore() {
@@ -22,6 +23,14 @@ function reloadFocoStore() {
   delete require.cache[require.resolve('./lib/foco-store')];
   focoStore = require('./lib/foco-store');
   return focoStore;
+}
+
+/** Dev: recarga inventario-store */
+function reloadInventarioStore() {
+  delete require.cache[require.resolve('./lib/inventario-model')];
+  delete require.cache[require.resolve('./lib/inventario-store')];
+  inventarioStore = require('./lib/inventario-store');
+  return inventarioStore;
 }
 
 const PORT = process.env.PORT || 8080;
@@ -96,7 +105,7 @@ function ensurePrimaryAdmin(store) {
       role: 'user',
       password: 'Gunner00',
       email: 'yurguen@exhatech.com',
-      modules: { contabilidad: true, bitacora: true },
+      modules: { contabilidad: true, bitacora: true, inventario: true },
     });
     wipeAllBudgets();
     try {
@@ -106,9 +115,12 @@ function ensurePrimaryAdmin(store) {
   (store.users || []).forEach((u) => {
     usersAuth.normalizeUserRecord(u);
     if (u.role === 'admin') {
-      u.modules = { contabilidad: false, bitacora: false };
+      u.modules = { contabilidad: false, bitacora: false, inventario: false };
     } else if (!u.modules) {
-      u.modules = { contabilidad: true, bitacora: true };
+      u.modules = { contabilidad: true, bitacora: true, inventario: false };
+    } else {
+      // Migra registros viejos: inventario opt-in si no venía.
+      u.modules = usersAuth.normalizeModules(u.modules, u.role);
     }
   });
   store.seedVersion = 5;
@@ -356,7 +368,7 @@ const server = http.createServer(async (req, res) => {
           active: true,
           email,
           phone,
-          modules: { contabilidad: true, bitacora: true },
+          modules: { contabilidad: true, bitacora: true, inventario: false },
           billingDayStart: 1,
           passwordSalt: cred.salt,
           passwordHash: cred.hash,
@@ -463,7 +475,7 @@ const server = http.createServer(async (req, res) => {
           email,
           phone,
           modules: role === 'admin'
-            ? { contabilidad: false, bitacora: false }
+            ? { contabilidad: false, bitacora: false, inventario: false }
             : usersAuth.normalizeModules(body.modules, 'user'),
           billingDayStart,
           passwordSalt: cred.salt,
@@ -1589,10 +1601,245 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // URLs públicas: /contabilidad y /bitacora
+  // ---- Yurguen: Inventario (API /api/inventario; URL pública /inventario) ----
+  if (url.pathname === '/api/inventario/photo') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Session-Token',
+      });
+      res.end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      send(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    // <img> no manda header: permitir ?token= solo en foto.
+    if (!req.headers['x-session-token'] && url.searchParams.get('token')) {
+      req.headers['x-session-token'] = url.searchParams.get('token');
+    }
+    const ctx = requireModuleUser(req, res, 'inventario');
+    if (!ctx) return;
+    reloadInventarioStore();
+    const id = url.searchParams.get('id') || '';
+    const photo = inventarioStore.readPhoto(id);
+    if (!photo) {
+      send(res, 404, { error: 'Foto no encontrada' });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': photo.contentType || 'application/octet-stream',
+      'Cache-Control': 'private, max-age=300',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(photo.buffer);
+    return;
+  }
+
+  if (url.pathname === '/api/inventario') {
+    reloadInventarioStore();
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Session-Token',
+      });
+      res.end();
+      return;
+    }
+    if (req.method !== 'POST') {
+      send(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    let body = {};
+    try {
+      body = await readBody(req);
+    } catch {
+      send(res, 400, { error: 'invalid body' });
+      return;
+    }
+    const action = body.action;
+    const ctx = requireModuleUser(req, res, 'inventario');
+    if (!ctx) return;
+
+    try {
+      if (action === 'bootstrap' || action === 'get') {
+        send(res, 200, {
+          ok: true,
+          settings: inventarioStore.getSettings(),
+          products: inventarioStore.listProducts({ includeInactive: !!body.includeInactive }),
+          purchases: inventarioStore.listPurchases(body.purchaseLimit || 40),
+          orders: inventarioStore.listOrders(body.orderLimit || 50),
+        });
+        return;
+      }
+      if (action === 'settings.get') {
+        send(res, 200, { ok: true, settings: inventarioStore.getSettings() });
+        return;
+      }
+      if (action === 'settings.save') {
+        const settings = inventarioStore.saveSettings(ctx.user, body.splits || body);
+        send(res, 200, { ok: true, settings });
+        return;
+      }
+      if (action === 'products.list') {
+        send(res, 200, {
+          ok: true,
+          products: inventarioStore.listProducts({ includeInactive: !!body.includeInactive }),
+        });
+        return;
+      }
+      if (action === 'products.get') {
+        const product = inventarioStore.getProduct(body.id);
+        if (!product) {
+          send(res, 404, { error: 'Producto no encontrado' });
+          return;
+        }
+        send(res, 200, { ok: true, product });
+        return;
+      }
+      if (action === 'products.save') {
+        const product = inventarioStore.saveProduct(ctx.user, body);
+        send(res, 200, { ok: true, product });
+        return;
+      }
+      if (action === 'products.delete') {
+        if (!body.id) {
+          send(res, 400, { error: 'Id obligatorio' });
+          return;
+        }
+        const product = inventarioStore.deleteProduct(ctx.user, body.id);
+        send(res, 200, { ok: true, product });
+        return;
+      }
+      if (action === 'products.photo.upload') {
+        if (!body.id) {
+          send(res, 400, { error: 'Id obligatorio' });
+          return;
+        }
+        if (!body.dataBase64) {
+          send(res, 400, { error: 'Foto obligatoria' });
+          return;
+        }
+        const raw = String(body.dataBase64);
+        const comma = raw.indexOf(',');
+        const b64 = comma >= 0 ? raw.slice(comma + 1) : raw;
+        const buffer = Buffer.from(b64, 'base64');
+        const product = inventarioStore.savePhoto(
+          ctx.user,
+          body.id,
+          body.contentType || 'image/jpeg',
+          buffer
+        );
+        send(res, 200, { ok: true, product });
+        return;
+      }
+      if (action === 'purchases.list') {
+        send(res, 200, {
+          ok: true,
+          purchases: inventarioStore.listPurchases(body.limit || 40),
+        });
+        return;
+      }
+      if (action === 'purchases.create') {
+        const purchase = inventarioStore.createPurchase(ctx.user, body);
+        send(res, 200, {
+          ok: true,
+          purchase,
+          products: inventarioStore.listProducts({ includeInactive: false }),
+        });
+        return;
+      }
+      if (action === 'purchases.cancel') {
+        if (!body.id) {
+          send(res, 400, { error: 'Id obligatorio' });
+          return;
+        }
+        const purchase = inventarioStore.cancelPurchase(ctx.user, body.id);
+        send(res, 200, {
+          ok: true,
+          purchase,
+          products: inventarioStore.listProducts({ includeInactive: false }),
+        });
+        return;
+      }
+      if (action === 'orders.list') {
+        send(res, 200, {
+          ok: true,
+          orders: inventarioStore.listOrders(body.limit || 50),
+        });
+        return;
+      }
+      if (action === 'orders.create') {
+        const order = inventarioStore.createOrder(ctx.user, body);
+        send(res, 200, {
+          ok: true,
+          order,
+          products: inventarioStore.listProducts({ includeInactive: false }),
+        });
+        return;
+      }
+      if (action === 'orders.confirm') {
+        if (!body.id) {
+          send(res, 400, { error: 'Id obligatorio' });
+          return;
+        }
+        const order = inventarioStore.confirmOrder(ctx.user, body.id);
+        send(res, 200, { ok: true, order });
+        return;
+      }
+      if (action === 'orders.cancel') {
+        if (!body.id) {
+          send(res, 400, { error: 'Id obligatorio' });
+          return;
+        }
+        const order = inventarioStore.cancelOrder(ctx.user, body.id);
+        send(res, 200, {
+          ok: true,
+          order,
+          products: inventarioStore.listProducts({ includeInactive: false }),
+        });
+        return;
+      }
+
+      if (action === 'orders.markRepartida') {
+        if (!body.id) {
+          send(res, 400, { error: 'Id obligatorio' });
+          return;
+        }
+        const order = inventarioStore.markOrderRepartida(ctx.user, body.id, body.repartida !== false);
+        send(res, 200, { ok: true, order });
+        return;
+      }
+
+      if (action === 'report.period') {
+        const report = inventarioStore.periodReport(body.from || body.fromDay, body.to || body.toDay);
+        send(res, 200, { ok: true, report });
+        return;
+      }
+      send(res, 400, { error: 'unknown action' });
+    } catch (e) {
+      const msg = e.message || 'Error en Inventario';
+      const client = /obligatorio|encontrado|vacía|máxima|permitido|inválid|Nombre|Agregá|cancelada|inactivo|Stock insuficiente|declarada|confirma|venta|precio|descuento|mínimo|margen|reparto|repartida/i.test(msg);
+      send(res, client ? 400 : 500, { error: msg });
+    }
+    return;
+  }
+
+  // URLs públicas: / (hub), /contabilidad, /bitacora, /inventario
   const cleanPath = url.pathname.replace(/\/+$/, '') || '/';
   if (cleanPath === '/foco') {
     res.writeHead(302, { Location: '/bitacora' });
+    res.end();
+    return;
+  }
+  if (cleanPath === '/hub.html') {
+    res.writeHead(302, { Location: '/' });
+    res.end();
+    return;
+  }
+  if (cleanPath === '/inventario.html') {
+    res.writeHead(302, { Location: '/inventario' });
     res.end();
     return;
   }
@@ -1609,9 +1856,15 @@ const server = http.createServer(async (req, res) => {
     res.end('Not found. Usá /contabilidad');
     return;
   }
-  // Contabilidad: eh-mnt.*; Bitácora: foco.* (archivos internos)
-  let servePath = url.pathname === '/' ? 'index.html' : url.pathname;
-  if (cleanPath === '/contabilidad') {
+  // Hub: hub.*; Contabilidad: eh-mnt.*; Bitácora: foco.*; Inventario: inventario.*
+  let servePath = url.pathname === '/' ? 'hub.html' : url.pathname;
+  if (cleanPath === '/' || cleanPath === '/hub') {
+    servePath = 'hub.html';
+  } else if (cleanPath === '/hub.js') {
+    servePath = 'hub.js';
+  } else if (cleanPath === '/hub.css') {
+    servePath = 'hub.css';
+  } else if (cleanPath === '/contabilidad') {
     servePath = 'eh-mnt.html';
   } else if (cleanPath === '/contabilidad.js') {
     servePath = 'eh-mnt.js';
@@ -1623,6 +1876,12 @@ const server = http.createServer(async (req, res) => {
     servePath = 'foco.js';
   } else if (cleanPath === '/bitacora.css') {
     servePath = 'foco.css';
+  } else if (cleanPath === '/inventario') {
+    servePath = 'inventario.html';
+  } else if (cleanPath === '/inventario.js') {
+    servePath = 'inventario.js';
+  } else if (cleanPath === '/inventario.css') {
+    servePath = 'inventario.css';
   }
 
   let filePath = path.join(ROOT, servePath);
@@ -1660,10 +1919,11 @@ server.listen(PORT, () => {
   }
   // Smoke test: día inicio 22 desde 1/10 → fin 21/10 (nunca el 22)
   const probe = budgetStore.resolveCutEndDate('2026-10-01', 22, '2026-10-20');
-  console.log(`ExhaTech → http://localhost:${PORT}`);
+  console.log(`ExhaTech → http://localhost:${PORT}/`);
   console.log(`Contabilidad → http://localhost:${PORT}/contabilidad`);
   console.log(`Bitácora → http://localhost:${PORT}/bitacora`);
+  console.log(`Inventario → http://localhost:${PORT}/inventario`);
   console.log('Yurguen: usuarios en data/users.local.json (hashes, no va a Git).');
-  console.log('Login → admin (admin) | yurguen_hernandez (user) — clave Gunner00');
+  console.log('Login → admin (admin) | yurguen (user) — clave Gunner00');
   console.log('Check ciclo: inicio 22 desde 01/10 → fin', probe, probe === '2026-10-21' ? 'OK' : 'FALLÓ');
 });

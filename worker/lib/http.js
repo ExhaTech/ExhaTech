@@ -37,3 +37,15 @@ export async function readJson(request) {
     return null;
   }
 }
+
+/** Respuesta binaria (fotos Inventario, etc.). */
+export function bytes(data, status = 200, contentType = 'application/octet-stream', extraHeaders = {}) {
+  return new Response(data, {
+    status,
+    headers: {
+      'Content-Type': contentType,
+      ...CORS_HEADERS,
+      ...extraHeaders,
+    },
+  });
+}

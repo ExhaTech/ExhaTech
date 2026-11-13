@@ -1,5 +1,5 @@
 /**
- * Empaqueta Contabilidad + Bitácora (+ assets de marca) en ./public
+ * Empaqueta Hub + Contabilidad + Bitácora + Inventario (+ assets de marca) en ./public
  * para el Worker de app.exhatech.com.
  * No incluye el marketing (ese va a Pages vía prepare-pages.mjs).
  */
@@ -12,12 +12,18 @@ const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'public');
 
 const FILES = [
+  'hub.html',
+  'hub.js',
+  'hub.css',
   'eh-mnt.html',
   'eh-mnt.js',
   'eh-mnt.css',
   'foco.html',
   'foco.js',
   'foco.css',
+  'inventario.html',
+  'inventario.js',
+  'inventario.css',
   'favicon.ico',
 ];
 
@@ -58,10 +64,10 @@ const assetsIgnore = [
 ].join('\n') + '\n';
 fs.writeFileSync(path.join(OUT, '.assetsignore'), assetsIgnore);
 
-// Landing mínima: el Worker redirige / → /contabilidad
+// Fallback HTML: el Worker resuelve / → hub.html vía paths.js
 fs.writeFileSync(
   path.join(OUT, 'index.html'),
-  '<!DOCTYPE html><meta http-equiv="refresh" content="0;url=/contabilidad"><title>ExhaTech App</title>\n'
+  '<!DOCTYPE html><meta http-equiv="refresh" content="0;url=/"><title>ExhaTech App</title>\n'
 );
 
 FILES.forEach(copyFile);

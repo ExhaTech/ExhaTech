@@ -2,8 +2,11 @@
 (function () {
   'use strict';
 
-  var TOKEN_KEY = 'exha_bitacora_token';
-  var USER_KEY = 'exha_bitacora_user';
+  // Sesión compartida con Hub / Contabilidad / Inventario (legacy keys se migran).
+  var TOKEN_KEY = 'exha_session_token';
+  var USER_KEY = 'exha_session_user';
+  var LEGACY_TOKEN_KEYS = ['exha_budget_token', 'exha_bitacora_token'];
+  var LEGACY_USER_KEYS = ['exha_budget_user', 'exha_bitacora_user'];
   var CONDO_COLORS_KEY = 'exha_bitacora_show_condo_colors';
   var AUTH_API = (typeof location !== 'undefined' ? location.origin : '') + '/api/eh-data';
   var FOCO_API = (typeof location !== 'undefined' ? location.origin : '') + '/api/foco';
@@ -61,11 +64,26 @@
   var modalDelete = document.getElementById('modalDelete');
   var kanbanBoard = document.getElementById('kanbanBoard');
 
+  function clearLegacySession() {
+    LEGACY_TOKEN_KEYS.forEach(function (k) { sessionStorage.removeItem(k); });
+    LEGACY_USER_KEYS.forEach(function (k) { sessionStorage.removeItem(k); });
+  }
+
   function getToken() {
-    return sessionStorage.getItem(TOKEN_KEY) || '';
+    var t = sessionStorage.getItem(TOKEN_KEY) || '';
+    if (t) return t;
+    for (var i = 0; i < LEGACY_TOKEN_KEYS.length; i++) {
+      t = sessionStorage.getItem(LEGACY_TOKEN_KEYS[i]) || '';
+      if (t) {
+        sessionStorage.setItem(TOKEN_KEY, t);
+        return t;
+      }
+    }
+    return '';
   }
 
   function setSession(token, user) {
+    clearLegacySession();
     if (token) sessionStorage.setItem(TOKEN_KEY, token);
     else sessionStorage.removeItem(TOKEN_KEY);
     if (user) {
@@ -77,9 +95,26 @@
     }
   }
 
+  /** Sin sesión válida → limpia y manda al hub. */
+  function rejectUnauthorized() {
+    setSession('', null);
+    location.replace('/');
+  }
+
+  /** Sesión ok pero sin permiso → hub sin cerrar sesión. */
+  function goHub() {
+    location.replace('/');
+  }
+
   function loadSessionUser() {
     try {
       var raw = sessionStorage.getItem(USER_KEY);
+      if (!raw) {
+        for (var i = 0; i < LEGACY_USER_KEYS.length; i++) {
+          raw = sessionStorage.getItem(LEGACY_USER_KEYS[i]);
+          if (raw) break;
+        }
+      }
       state.user = raw ? JSON.parse(raw) : null;
     } catch (e) {
       state.user = null;
@@ -256,8 +291,7 @@
 
   function userHasBitacora(user) {
     if (!user || user.role === 'admin') return false;
-    // Si el API viejo no manda modules, asumir activo (user normal).
-    if (!user.modules) return true;
+    if (!user.modules) return false;
     return !!user.modules.bitacora;
   }
 
@@ -279,22 +313,21 @@
   }
 
   function showLogin() {
-    setSession('', null);
-    state.data = { origenes: [], roles: [], condominios: [], contactos: [], items: [] };
-    if (loginView) loginView.style.display = 'flex';
-    if (shell) shell.classList.remove('active');
+    rejectUnauthorized();
   }
 
   function showShell() {
     if (!state.user) loadSessionUser();
+    if (!state.user || state.user.role === 'admin' || !userHasBitacora(state.user)) {
+      goHub();
+      return;
+    }
     if (loginView) loginView.style.display = 'none';
     if (shell) shell.classList.add('active');
     var label = document.getElementById('userLabel');
     if (label) label.textContent = (state.user && (state.user.displayName || state.user.username)) || '';
-    // Slots AdSense: visibles para usuarios con Bitácora (admin no opera acá)
-    var showAds = !(state.user && state.user.role === 'admin');
     document.querySelectorAll('.ad-slot').forEach(function (slot) {
-      slot.hidden = !showAds;
+      slot.hidden = false;
     });
   }
 
@@ -1333,44 +1366,11 @@
     });
   });
 
-  if (loginForm) {
-    loginForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-      showLoginError('');
-      authApi('auth', {
-        username: document.getElementById('usernameInput').value,
-        password: document.getElementById('passwordInput').value
-      })
-        .then(function (res) {
-          if (!res.ok) {
-            showLoginError(res.error || 'Credenciales inválidas');
-            return;
-          }
-          setSession(res.token, res.user);
-          if (res.user && res.user.role === 'admin') {
-            showLoginError('El admin solo gestiona usuarios en Contabilidad.');
-            return;
-          }
-          if (!userHasBitacora(res.user)) {
-            showLoginError('No tenés Bitácora activa. Pedile al admin que te la active.');
-            return;
-          }
-          showShell();
-          switchPanel('tablero');
-          authApi('track.module', { module: 'bitacora' }).catch(function () {});
-          return loadData();
-        })
-        .catch(function (err) {
-          showLoginError((err && err.message) || 'No se pudo iniciar sesión. Probá recargar.');
-        });
-    });
-  }
-
   var btnLogout = document.getElementById('btnLogout');
   if (btnLogout) {
     btnLogout.addEventListener('click', function () {
       authApi('logout').finally(function () {
-        showLogin();
+        rejectUnauthorized();
       });
     });
   }
@@ -1913,22 +1913,27 @@
   loadCondoColorPref();
   syncCondoColorToggleUi();
 
-  if (getToken() && loadSessionUser()) {
+  if (!getToken()) {
+    rejectUnauthorized();
+  } else {
+    loadSessionUser();
     authApi('me')
       .then(function (res) {
         if (!res.ok || !res.user) {
-          showLogin();
+          rejectUnauthorized();
           return;
         }
         setSession(getToken(), res.user);
         showShell();
+        if (!(state.user && state.user.role !== 'admin' && userHasBitacora(state.user))) {
+          return;
+        }
         switchPanel('tablero');
+        authApi('track.module', { module: 'bitacora' }).catch(function () {});
         return loadData();
       })
       .catch(function () {
-        showLogin();
+        rejectUnauthorized();
       });
-  } else {
-    showLogin();
   }
 })();

@@ -1,10 +1,11 @@
 /**
- * Despacho de APIs. Contabilidad y Bitácora corren en Workers.
+ * Despacho de APIs. Contabilidad, Bitácora e Inventario en Workers.
  */
 import { corsPreflight, json, readJson } from '../lib/http.js';
 import { handleEhData } from './eh-data.js';
 import { handleFoco } from './foco.js';
 import { handleHealth } from './health.js';
+import { handleInventario, handleInventarioPhoto } from './inventario.js';
 
 /**
  * @param {Request} request
@@ -47,6 +48,24 @@ export async function handleApi(request, env, ctx) {
       return json({ error: 'invalid body' }, 400);
     }
     return handleFoco(request, env, body);
+  }
+
+  if (path === '/api/inventario/photo') {
+    if (request.method !== 'GET') {
+      return json({ error: 'method not allowed' }, 405);
+    }
+    return handleInventarioPhoto(request, env);
+  }
+
+  if (path === '/api/inventario') {
+    if (request.method !== 'POST') {
+      return json({ error: 'method not allowed' }, 405);
+    }
+    const body = await readJson(request);
+    if (body == null) {
+      return json({ error: 'invalid body' }, 400);
+    }
+    return handleInventario(request, env, body);
   }
 
   return json({ error: 'not found', path }, 404);

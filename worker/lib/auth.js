@@ -22,16 +22,21 @@ function tokenHash(token) {
 export function mapUserRow(row) {
   if (!row) return null;
   const role = row.role === 'admin' ? 'admin' : 'user';
-  // D1 aún no persiste modules; default alineado con Node local.
   const modules = normalizeModules(
     row.modules
       || {
         contabilidad: row.module_contabilidad == null
+          && row.moduleContabilidad == null
           ? undefined
-          : Number(row.module_contabilidad) !== 0,
+          : Number(row.module_contabilidad ?? row.moduleContabilidad) !== 0,
         bitacora: row.module_bitacora == null
+          && row.moduleBitacora == null
           ? undefined
-          : Number(row.module_bitacora) !== 0,
+          : Number(row.module_bitacora ?? row.moduleBitacora) !== 0,
+        inventario: row.module_inventario == null
+          && row.moduleInventario == null
+          ? undefined
+          : Number(row.module_inventario ?? row.moduleInventario) !== 0,
       },
     role
   );
@@ -63,6 +68,9 @@ function baseUserSelect() {
       password_salt AS passwordSalt,
       password_hash AS passwordHash,
       billing_day_start AS billingDayStart,
+      module_contabilidad AS moduleContabilidad,
+      module_bitacora AS moduleBitacora,
+      module_inventario AS moduleInventario,
       created_at AS createdAt,
       updated_at AS updatedAt
     FROM users
@@ -137,21 +145,27 @@ export async function listUsers(env) {
 
 export async function createUser(env, input) {
   const now = nowIso();
+  const role = input.role === 'admin' ? 'admin' : 'user';
+  const modules = normalizeModules(input.modules, role);
   await env.DB.prepare(`
     INSERT INTO users (
       id, username, display_name, role, active,
       password_salt, password_hash, billing_day_start,
+      module_contabilidad, module_bitacora, module_inventario,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     input.id,
     input.username,
     input.displayName,
-    input.role === 'admin' ? 'admin' : 'user',
+    role,
     input.active === false ? 0 : 1,
     input.passwordSalt,
     input.passwordHash,
     Number(input.billingDayStart) || 1,
+    modules.contabilidad ? 1 : 0,
+    modules.bitacora ? 1 : 0,
+    modules.inventario ? 1 : 0,
     input.createdAt || now,
     now
   ).run();
@@ -185,6 +199,23 @@ export async function updateUser(env, id, changes) {
   if (changes.passwordHash != null) {
     sets.push('password_hash = ?');
     values.push(String(changes.passwordHash));
+  }
+  if (changes.modules != null) {
+    const roleForMods = changes.role != null
+      ? (changes.role === 'admin' ? 'admin' : 'user')
+      : null;
+    // Si el rol no viene en este update, normalize con 'user' y el caller
+    // debe pasar modules solo para no-admin (eh-data lo garantiza).
+    const modules = normalizeModules(
+      changes.modules,
+      roleForMods === 'admin' ? 'admin' : 'user'
+    );
+    sets.push('module_contabilidad = ?');
+    values.push(modules.contabilidad ? 1 : 0);
+    sets.push('module_bitacora = ?');
+    values.push(modules.bitacora ? 1 : 0);
+    sets.push('module_inventario = ?');
+    values.push(modules.inventario ? 1 : 0);
   }
   if (!sets.length) {
     return findUserById(env, id);
@@ -241,6 +272,9 @@ export async function getAuth(request, env) {
       u.password_salt AS passwordSalt,
       u.password_hash AS passwordHash,
       u.billing_day_start AS billingDayStart,
+      u.module_contabilidad AS moduleContabilidad,
+      u.module_bitacora AS moduleBitacora,
+      u.module_inventario AS moduleInventario,
       u.created_at AS createdAt,
       u.updated_at AS updatedAt
     FROM sessions s
@@ -298,6 +332,31 @@ export async function requireAdmin(request, env) {
   if (auth.errorResponse) return auth;
   if (auth.ctx.user.role !== 'admin') {
     return { ctx: null, errorResponse: json({ error: 'forbidden' }, 403) };
+  }
+  return auth;
+}
+
+/** Usuario con sesión + módulo activo (admin nunca opera módulos). */
+export async function requireModule(request, env, moduleName) {
+  const auth = await requireAuth(request, env);
+  if (auth.errorResponse) return auth;
+  const user = auth.ctx.user;
+  if (user.role === 'admin') {
+    return {
+      ctx: null,
+      errorResponse: json({
+        error: 'El admin solo gestiona usuarios; no opera este módulo.',
+      }, 403),
+    };
+  }
+  const mods = user.modules || {};
+  if (!mods[moduleName]) {
+    return {
+      ctx: null,
+      errorResponse: json({
+        error: 'No tenés acceso a este módulo. Pedile al admin que te lo active.',
+      }, 403),
+    };
   }
   return auth;
 }

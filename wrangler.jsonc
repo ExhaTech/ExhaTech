@@ -47,7 +47,7 @@
     {
       "binding": "DATA",
       "bucket_name": "exhatech-data"
-      // Objetos por usuario: budgets/{userId}.json, foco/{userId}.json
+      // Objetos: budgets/{userId}.json, foco/{userId}.json, inventario/photos/{productId}.*
     }
   ]
   // Secrets (no declarar valores aquí):

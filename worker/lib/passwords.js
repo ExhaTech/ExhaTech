@@ -32,15 +32,19 @@ export function uid() {
   return 'u_' + Date.now().toString(36) + '_' + crypto.randomBytes(4).toString('hex');
 }
 
-/** Admin no opera módulos; user por defecto tiene Contabilidad + Bitácora. */
+/**
+ * Admin no opera módulos.
+ * User: Contabilidad/Bitácora ON por defecto; Inventario opt-in.
+ */
 export function normalizeModules(raw, role) {
   if (role === 'admin') {
-    return { contabilidad: false, bitacora: false };
+    return { contabilidad: false, bitacora: false, inventario: false };
   }
   const m = raw && typeof raw === 'object' ? raw : {};
   return {
     contabilidad: m.contabilidad !== false,
     bitacora: m.bitacora !== false,
+    inventario: m.inventario === true,
   };
 }
 

@@ -1,6 +1,6 @@
 /**
  * ExhaTech — Cloudflare Worker (app.exhatech.com)
- * Contabilidad + Bitácora + APIs bajo /api/*.
+ * Hub + Contabilidad + Bitácora + Inventario + APIs bajo /api/*.
  * Marketing vive en Cloudflare Pages (exhatech.com).
  */
 import { handleApi } from './api/router.js';
