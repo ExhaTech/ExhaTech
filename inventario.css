@@ -44,6 +44,12 @@ body {
   font-size: 0.82rem;
   color: var(--muted);
 }
+.inv-top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
 .inv-back {
   color: var(--teal);
   text-decoration: none;
@@ -179,29 +185,75 @@ body {
   gap: 10px;
   margin-bottom: 12px;
 }
-.report-summary {
-  margin: 16px 0 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
+.report-summary { margin: 16px 0 18px; overflow-x: auto; }
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  background: var(--white);
 }
-.report-stat {
-  background: rgba(25, 114, 120, 0.06);
-  border-radius: 10px;
+.report-table th,
+.report-table td {
+  border: 1px solid rgba(25, 114, 120, 0.16);
   padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
 }
-.report-stat strong {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--muted);
-  font-weight: 600;
-  margin-bottom: 4px;
+.report-table thead th {
+  background: rgba(25, 114, 120, 0.08);
+  color: var(--teal-dark);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
-.report-stat span {
-  font-size: 1.05rem;
+.report-row-ventas th,
+.report-row-ventas td { background: #fff; }
+.report-row-reparto th,
+.report-row-reparto td { background: rgba(25, 114, 120, 0.04); }
+.report-row-reparto th[scope="row"] {
   font-weight: 700;
   color: var(--teal-dark);
+  white-space: nowrap;
+  width: 1%;
 }
+.report-cell-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.report-cell-label em {
+  font-style: normal;
+  color: var(--ink-soft);
+}
+.report-ventas-line,
+.report-split-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+.report-ventas-line span,
+.report-split-inline span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 88px;
+}
+.report-ventas-line em,
+.report-split-inline em {
+  font-style: normal;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.report-ventas-line strong,
+.report-split-inline strong,
+.report-table td strong {
+  color: var(--teal-dark);
+  font-weight: 700;
+}
+.report-table--sales { margin-top: 8px; }
+.report-table--sales .report-row-reparto td { font-size: 0.88rem; }
+.report-actions { white-space: nowrap; text-align: right; }
 .badge-repartida { background: #efe8ff; color: #4b2d8a; }
 
 .field { margin-bottom: 12px; }
@@ -239,12 +291,17 @@ body {
 .commission-list { margin-bottom: 8px; }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 8px;
   font: inherit;
   font-weight: 600;
   padding: 9px 14px;
   cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 .btn-sm { padding: 6px 10px; font-size: 0.88rem; }
 .btn-primary { background: var(--teal); color: #fff; }

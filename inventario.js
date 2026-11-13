@@ -309,6 +309,18 @@
     });
   }
 
+  function reportSplitCells(parts, splits) {
+    var p = parts || {};
+    var s = splits || {};
+    return Object.keys(SPLIT_LABELS).map(function (k) {
+      var pct = s[k] != null ? ' <em>' + escapeHtml(String(s[k])) + '%</em>' : '';
+      return '<td><span class="report-cell-label">' + escapeHtml(SPLIT_LABELS[k]) + pct +
+        '</span><strong>' + escapeHtml(formatMoney(p[k] || 0)) + '</strong></td>';
+    }).join('') +
+      '<td><span class="report-cell-label">Resto</span><strong>' +
+      escapeHtml(formatMoney(p.resto || 0)) + '</strong></td>';
+  }
+
   function renderPeriodReport() {
     var summary = document.getElementById('reportSummary');
     var list = document.getElementById('reportSales');
@@ -323,19 +335,31 @@
     }
     var t = report.totals || {};
     var parts = t.parts || {};
-    var stats = [
-      ['Ventas', String(t.count || 0)],
-      ['Total', formatMoney(t.amount || 0)],
-      ['Repartidas', String(t.repartidas || 0)],
-      ['Pendientes', String(t.pendientes || 0)]
-    ].concat(Object.keys(SPLIT_LABELS).map(function (k) {
-      return [SPLIT_LABELS[k], formatMoney(parts[k] || 0)];
-    })).concat([['Resto', formatMoney(parts.resto || 0)]]);
+    var splits = report.splits || currentSplits();
+    var splitColspan = Object.keys(SPLIT_LABELS).length + 1;
 
     summary.hidden = false;
-    summary.innerHTML = stats.map(function (pair) {
-      return '<div class="report-stat"><strong>' + escapeHtml(pair[0]) + '</strong><span>' + escapeHtml(pair[1]) + '</span></div>';
-    }).join('');
+    summary.innerHTML =
+      '<table class="report-table">' +
+        '<thead><tr><th>Tipo</th><th colspan="' + splitColspan + '">Detalle</th></tr></thead>' +
+        '<tbody>' +
+          '<tr class="report-row-ventas">' +
+            '<th scope="row">Ventas</th>' +
+            '<td colspan="' + splitColspan + '">' +
+              '<div class="report-ventas-line">' +
+                '<span><em>Cantidad</em><strong>' + escapeHtml(String(t.count || 0)) + '</strong></span>' +
+                '<span><em>Total</em><strong>' + escapeHtml(formatMoney(t.amount || 0)) + '</strong></span>' +
+                '<span><em>Repartidas</em><strong>' + escapeHtml(String(t.repartidas || 0)) + '</strong></span>' +
+                '<span><em>Pendientes</em><strong>' + escapeHtml(String(t.pendientes || 0)) + '</strong></span>' +
+              '</div>' +
+            '</td>' +
+          '</tr>' +
+          '<tr class="report-row-reparto">' +
+            '<th scope="row">Repartición</th>' +
+            reportSplitCells(parts, splits) +
+          '</tr>' +
+        '</tbody>' +
+      '</table>';
 
     var sales = report.sales || [];
     if (!sales.length) {
@@ -344,30 +368,41 @@
       return;
     }
     if (empty) empty.hidden = true;
-    list.innerHTML = sales.map(function (o) {
-      var splitParts = (o.split && o.split.parts) || {};
-      var splitLine = Object.keys(SPLIT_LABELS).map(function (k) {
-        return SPLIT_LABELS[k] + ' ' + formatMoney(splitParts[k] || 0);
-      }).join(' · ') + ' · Resto ' + formatMoney(splitParts.resto || 0);
-      var actions = o.repartida
-        ? '<button type="button" class="btn btn-outline btn-sm" data-repartida-order="' + escapeHtml(o.id) + '" data-repartida="0">Quitar repartida</button>'
-        : '<button type="button" class="btn btn-primary btn-sm" data-repartida-order="' + escapeHtml(o.id) + '" data-repartida="1">Marcar repartida</button>';
-      return '<article class="purchase-card">' +
-        '<div class="purchase-card__head">' +
-          '<div>' +
-            '<h3>' + escapeHtml(o.customerName || 'Cliente') + ' · ' + formatMoney(o.totalAmount) + '</h3>' +
-            '<p class="panel-hint" style="margin:4px 0 0">' +
-              'Venta: ' + escapeHtml(String(o.confirmedAt || '').slice(0, 16).replace('T', ' ')) +
-              '<br>' + escapeHtml(splitLine) +
-            '</p>' +
-          '</div>' +
-          '<div class="order-card-actions">' +
-            orderStatusBadge('venta', o.repartida) +
-            actions +
-          '</div>' +
-        '</div>' +
-      '</article>';
-    }).join('');
+    list.innerHTML =
+      '<table class="report-table report-table--sales">' +
+        '<thead>' +
+          '<tr>' +
+            '<th>Fecha</th><th>Cliente</th><th>Total</th><th>Estado</th><th></th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>' +
+          sales.map(function (o) {
+            var splitParts = (o.split && o.split.parts) || {};
+            var actions = o.repartida
+              ? '<button type="button" class="btn btn-outline btn-sm" data-repartida-order="' + escapeHtml(o.id) + '" data-repartida="0">Quitar</button>'
+              : '<button type="button" class="btn btn-primary btn-sm" data-repartida-order="' + escapeHtml(o.id) + '" data-repartida="1">Marcar repartida</button>';
+            return '<tr class="report-row-ventas">' +
+              '<td>' + escapeHtml(String(o.confirmedAt || '').slice(0, 16).replace('T', ' ')) + '</td>' +
+              '<td>' + escapeHtml(o.customerName || 'Cliente') + '</td>' +
+              '<td><strong>' + escapeHtml(formatMoney(o.totalAmount)) + '</strong></td>' +
+              '<td>' + orderStatusBadge('venta', o.repartida) + '</td>' +
+              '<td class="report-actions">' + actions + '</td>' +
+            '</tr>' +
+            '<tr class="report-row-reparto">' +
+              '<th scope="row">Repartición</th>' +
+              '<td colspan="4">' +
+                '<div class="report-split-inline">' +
+                  Object.keys(SPLIT_LABELS).map(function (k) {
+                    return '<span><em>' + escapeHtml(SPLIT_LABELS[k]) + '</em><strong>' +
+                      escapeHtml(formatMoney(splitParts[k] || 0)) + '</strong></span>';
+                  }).join('') +
+                  '<span><em>Resto</em><strong>' + escapeHtml(formatMoney(splitParts.resto || 0)) + '</strong></span>' +
+                '</div>' +
+              '</td>' +
+            '</tr>';
+          }).join('') +
+        '</tbody>' +
+      '</table>';
     bindRepartidaButtons(list);
   }
 

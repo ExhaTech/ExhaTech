@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
   <title>Exha — Inventario</title>
-  <link rel="stylesheet" href="/inventario.css?v=6" />
+  <link rel="stylesheet" href="/inventario.css?v=7" />
 </head>
 <body>
   <div class="inv-shell" id="invShell" hidden>
     <header class="inv-top">
       <div>
-        <a class="inv-back" href="/">← Sistemas</a>
         <h1>Inventario — <span id="userLabel"></span></h1>
         <p class="inv-tagline">Catálogo compartido · 3–4 personas · stock, pedidos y ventas al día</p>
       </div>
-      <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
+      <div class="inv-top-actions">
+        <a class="btn btn-ghost btn-sm" href="/">← Sistemas</a>
+        <button type="button" class="btn btn-ghost btn-sm" id="btnLogout">Salir</button>
+      </div>
     </header>
 
     <nav class="inv-nav" aria-label="Secciones">
@@ -128,6 +130,6 @@
     </div>
   </div>
 
-  <script src="/inventario.js?v=6"></script>
+  <script src="/inventario.js?v=7"></script>
 </body>
 </html>

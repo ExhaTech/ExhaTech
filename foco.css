@@ -296,6 +296,9 @@ body {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: inherit;
   font-weight: 600;
   font-size: 0.9rem;
@@ -304,6 +307,8 @@ body {
   border: 1px solid transparent;
   cursor: pointer;
   min-height: 42px;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 .btn-sm { padding: 6px 12px; font-size: 0.8rem; min-height: 34px; }
 .btn-primary { background: var(--teal); color: var(--white); }

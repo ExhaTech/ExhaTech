@@ -924,6 +924,8 @@ img, svg, video, canvas, table {
   font-size: 0.9rem;
   cursor: pointer;
   transition: opacity 0.2s;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--teal); color: var(--white); }
